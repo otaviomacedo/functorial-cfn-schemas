@@ -1,8 +1,18 @@
 # Functorial CloudFormation Schemas
 
-A framework for defining simplified CloudFormation schemas where structural correctness (which resources exist, what references what) is guaranteed by construction using category theory.
+A framework for defining simplified infrastructure schemas where structural correctness (which resources exist, what references what) is guaranteed by construction using category theory.
+
+## Background: Infrastructure as Code
+
+Cloud providers (AWS, Azure, GCP) let you provision infrastructure — virtual networks, servers, databases, API endpoints — by writing declarative configuration files rather than clicking through a console. AWS calls this service **CloudFormation**: you write a YAML template describing your desired resources, and AWS creates/updates them to match.
+
+A real-world template might declare dozens of resources that cross-reference each other. A subnet belongs to a VPC. A route table is attached to a subnet. A NAT gateway sits in a subnet and uses an elastic IP. An API method belongs to an API resource which belongs to a REST API. These references form a **graph of dependencies** — and getting any edge wrong produces infrastructure that deploys without errors but silently misbehaves at runtime (traffic routes to the wrong network, API calls return 404, etc.).
+
+Tools like AWS CDK (Cloud Development Kit) let you write infrastructure in general-purpose programming languages (TypeScript, Python) with higher-level abstractions. But they address the problem with imperative code — bugs in wiring are still possible, just hidden behind method calls.
 
 ## The idea
+
+This framework takes a different approach. Instead of hiding wiring behind code, it makes wiring bugs **structurally impossible** using category theory.
 
 CloudFormation templates are full of "wiring" — resources that reference each other via `Ref` and `Fn::GetAtt`. Getting this wiring wrong produces templates that deploy successfully but fail silently at runtime (wrong VPC, mismatched API Gateway RestApiId, etc.). These bugs are hard to test because they're structural, not computational.
 

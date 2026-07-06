@@ -1,19 +1,13 @@
-# A simple REST API with two routes, using the Methods macro.
+# A REST API with nested routes and mixed authorization.
 #
-# Compare to CDK:
-#   const api = new apigateway.RestApi(this, 'ItemsApi', { ... });
-#   const items = api.root.addResource('items');
-#   items.addMethod('GET', new apigateway.LambdaIntegration(getItemsFn));
-#   items.addMethod('POST', new apigateway.LambdaIntegration(createItemFn));
-#   const item = items.addResource('{id}');
-#   item.addMethod('GET', new apigateway.LambdaIntegration(getItemFn));
-#   item.addMethod('DELETE', new apigateway.LambdaIntegration(deleteItemFn));
+# /items        — public (GET to list), authorized (POST to create)
+# /items/{id}   — nested route under /items
 #
-# Produces: RestApi(1) + Resource(2) + Method(4) + Integration(4)
-#           + Deployment(1) + Stage(1) = 13 resources
-#
-# The path equations guarantee that all Methods/Resources agree on RestApiId —
-# a misconfiguration that's easy to make in raw CFN and causes silent 404s.
+# Structural guarantees (impossible to violate by construction):
+#   - All resources/methods/authorizer share the same RestApiId
+#   - {id} resource inherits API from /items (path equation)
+#   - LambdaAuth's API matches the authorized method's API (path equation)
+#   - Stage's API matches Deployment's API
 
 Schema: ./apigw.schema.yaml
 
@@ -30,32 +24,67 @@ Resources:
       StageName: "prod"
       Api: ItemsApi
 
+  LambdaAuth:
+    Type: Functorial::APIGW::Authorizer
+    Properties:
+      Name: "lambda-authorizer"
+      Type: "REQUEST"
+      Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthFn.Arn}/invocations"
+      Api: ItemsApi
+
+  # Top-level: /items
   ItemsRoute:
     Type: Functorial::APIGW::Route
     Properties:
       Path: "items"
       Api: ItemsApi
-      # Macro: each entry in Methods becomes a separate Method resource.
-      # IntegrationUri is forwarded from the Route to each expanded Method.
-      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemsHandlerFn.Arn}/invocations"
-      Methods:
-        - HttpMethod: "GET"
-          Auth: "NONE"
-          IntegrationType: "AWS_PROXY"
-        - HttpMethod: "POST"
-          Auth: "IAM"
-          IntegrationType: "AWS_PROXY"
 
+  # Nested: /items/{id}
   ItemRoute:
-    Type: Functorial::APIGW::Route
+    Type: Functorial::APIGW::SubRoute
     Properties:
       Path: "{id}"
-      Api: ItemsApi
-      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemHandlerFn.Arn}/invocations"
-      Methods:
-        - HttpMethod: "GET"
-          Auth: "NONE"
-          IntegrationType: "AWS_PROXY"
-        - HttpMethod: "DELETE"
-          Auth: "IAM"
-          IntegrationType: "AWS_PROXY"
+      Parent: ItemsRoute
+
+  # Public: GET /items (no auth)
+  ListItems:
+    Type: Functorial::APIGW::Method
+    Properties:
+      HttpMethod: "GET"
+      Auth: "NONE"
+      Route: ItemsRoute
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListItemsFn.Arn}/invocations"
+
+  # Authorized: POST /items (requires lambda authorizer)
+  CreateItem:
+    Type: Functorial::APIGW::AuthMethod
+    Properties:
+      HttpMethod: "POST"
+      Auth: "CUSTOM"
+      Route: ItemsRoute
+      Authorizer: LambdaAuth
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateItemFn.Arn}/invocations"
+
+  # Authorized: GET /items/{id}
+  GetItem:
+    Type: Functorial::APIGW::AuthMethod
+    Properties:
+      HttpMethod: "GET"
+      Auth: "CUSTOM"
+      Route: ItemsRoute
+      Authorizer: LambdaAuth
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetItemFn.Arn}/invocations"
+
+  # Authorized: DELETE /items/{id}
+  DeleteItem:
+    Type: Functorial::APIGW::AuthMethod
+    Properties:
+      HttpMethod: "DELETE"
+      Auth: "CUSTOM"
+      Route: ItemsRoute
+      Authorizer: LambdaAuth
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteItemFn.Arn}/invocations"

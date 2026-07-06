@@ -1,5 +1,5 @@
 # Same API as apigw-items-api.template.yaml, but written without macros.
-# This is what the macro expands to internally — both are valid inputs.
+# Demonstrates the explicit form and nested routes.
 
 Schema: ./apigw.schema.yaml
 
@@ -16,11 +16,19 @@ Resources:
       StageName: "prod"
       Api: ItemsApi
 
+  # Top-level: /items
   ItemsRoute:
     Type: Functorial::APIGW::Route
     Properties:
       Path: "items"
       Api: ItemsApi
+
+  # Nested: /items/{id}
+  ItemRoute:
+    Type: Functorial::APIGW::SubRoute
+    Properties:
+      Path: "{id}"
+      Parent: ItemsRoute
 
   GetItems:
     Type: Functorial::APIGW::Method
@@ -40,18 +48,12 @@ Resources:
       IntegrationType: "AWS_PROXY"
       IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemsHandlerFn.Arn}/invocations"
 
-  ItemRoute:
-    Type: Functorial::APIGW::Route
-    Properties:
-      Path: "{id}"
-      Api: ItemsApi
-
   GetItem:
     Type: Functorial::APIGW::Method
     Properties:
       HttpMethod: "GET"
       Auth: "NONE"
-      Route: ItemRoute
+      Route: ItemsRoute
       IntegrationType: "AWS_PROXY"
       IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemHandlerFn.Arn}/invocations"
 
@@ -60,6 +62,6 @@ Resources:
     Properties:
       HttpMethod: "DELETE"
       Auth: "IAM"
-      Route: ItemRoute
+      Route: ItemsRoute
       IntegrationType: "AWS_PROXY"
       IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemHandlerFn.Arn}/invocations"

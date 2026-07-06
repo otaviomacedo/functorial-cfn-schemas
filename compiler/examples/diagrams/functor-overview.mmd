@@ -1,0 +1,81 @@
+---
+title: "Functor G: D → C (Resource Objects Only)"
+---
+%%{ init: { 'theme': 'base', 'themeVariables': { 'fontSize': '12px' } } }%%
+
+graph LR
+
+%% ═══════════════════════════════════════════════════════════
+%% Technique: "Fiber view" — D on the left, C on the right,
+%% functor arrows in the middle. Group by structural role.
+%% Value objects omitted (they map to themselves).
+%% ═══════════════════════════════════════════════════════════
+
+subgraph D ["D (User-Facing)"]
+  direction TB
+  subgraph D_core ["Core"]
+    D_Net["Network"]
+  end
+  subgraph D_sub ["Subnets"]
+    D_Pub["PublicTier"]
+    D_Priv["PrivateTier"]
+    D_Iso["IsolatedTier"]
+  end
+  subgraph D_conn ["Connectivity"]
+    D_Nat["NatSlot"]
+  end
+  subgraph D_endp ["Services"]
+    D_Endp["Endpoint"]
+  end
+end
+
+subgraph C ["C (CloudFormation)"]
+  direction TB
+  subgraph C_core ["Core"]
+    C_VPC["VPC"]
+  end
+  subgraph C_sub ["Subnets"]
+    C_PubSub["PublicSubnet"]
+    C_PrivSub["PrivateSubnet"]
+    C_IsoSub["IsolatedSubnet"]
+  end
+  subgraph C_rt ["Route Tables"]
+    C_PubRT["PublicRT"]
+    C_PrivRT["PrivateRT"]
+    C_IsoRT["IsolatedRT"]
+    C_PubAssoc["PublicRTAssoc"]
+    C_PrivAssoc["PrivateRTAssoc"]
+    C_IsoAssoc["IsolatedRTAssoc"]
+  end
+  subgraph C_igw ["Internet Gateway"]
+    C_IGW["IGW"]
+    C_IGWAtt["IGWAttach"]
+    C_PubRoute["PublicRoute"]
+  end
+  subgraph C_nat ["NAT"]
+    C_EIP["EIP"]
+    C_NatGW["NatGateway"]
+    C_PrivRoute["PrivateRoute"]
+  end
+  subgraph C_vpn ["VPN"]
+    C_VPNGW["VPNGateway"]
+    C_VPNAtt["VPNGWAttach"]
+    C_VPNProp["VPNRouteProp"]
+  end
+  subgraph C_endp ["Services"]
+    C_GWEndp["GatewayEndpoint"]
+  end
+end
+
+%% Functor arrows (G maps D → C)
+D_Net ==>|"G"| C_VPC
+D_Pub ==>|"G"| C_PubSub
+D_Priv ==>|"G"| C_PrivSub
+D_Iso ==>|"G"| C_IsoSub
+D_Nat ==>|"G"| C_NatGW
+D_Endp ==>|"G"| C_GWEndp
+
+%% Style
+style D fill:#e8f4fd,stroke:#2196F3
+style C fill:#fff3e0,stroke:#FF9800
+linkStyle 0,1,2,3,4,5 stroke:#9C27B0,stroke-width:2px

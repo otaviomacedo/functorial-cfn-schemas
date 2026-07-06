@@ -1,0 +1,684 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{tikz-cd}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+\newtheorem{remark}{Remark}[section]
+
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}[section]
+
+\newcommand{\Set}{\mathbf{Set}}
+\newcommand{\op}{\mathrm{op}}
+\newcommand{\id}{\mathrm{id}}
+\newcommand{\Hom}{\mathrm{Hom}}
+
+\title{Right Kan Extensions for CloudFormation Template Generation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a category-theoretic framework for generating CloudFormation templates from simplified user inputs. The key construction is the \emph{right Kan extension}, which mechanically expands a small user-facing specification into a full infrastructure template with guaranteed referential consistency. We assume the reader is familiar with categories and functors, and develop the necessary machinery (limits, Kan extensions) from scratch using concrete examples drawn from AWS networking resources.
+\end{abstract}
+
+\tableofcontents
+
+\section{Schemas and Instances}
+
+\subsection{The Database Analogy}
+
+Following Fong and Spivak~\cite{fong2019invitation}, we model a \emph{schema} as a category and an \emph{instance} (a way of populating that schema with data) as a functor to $\Set$.
+
+\begin{definition}
+A \textbf{schema} is a small category $\mathcal{C}$, where:
+\begin{itemize}
+  \item Objects represent \emph{types} (resource types, property types).
+  \item Morphisms represent \emph{structural references} between types.
+\end{itemize}
+\end{definition}
+
+\begin{definition}
+An \textbf{instance} of a schema $\mathcal{C}$ is a functor $I \colon \mathcal{C} \to \Set$, where:
+\begin{itemize}
+  \item $I(c)$ is the set of elements of type $c$ (e.g., the set of all VPCs in a template).
+  \item $I(f)$ for $f \colon c \to c'$ is a function $I(c) \to I(c')$ assigning each element of type $c$ its referenced element of type $c'$.
+\end{itemize}
+\end{definition}
+
+\begin{example}[A simple networking schema]
+\label{ex:simple-schema}
+Consider a schema $\mathcal{C}$ with two objects and one morphism:
+\[
+\begin{tikzcd}
+\texttt{Subnet} \arrow[r, "\texttt{subnet\_vpc}"] & \texttt{VPC}
+\end{tikzcd}
+\]
+An instance $I \colon \mathcal{C} \to \Set$ with two subnets and one VPC looks like:
+\begin{align*}
+I(\texttt{VPC}) &= \{ v_1 \} \\
+I(\texttt{Subnet}) &= \{ s_1, s_2 \} \\
+I(\texttt{subnet\_vpc}) &\colon s_1 \mapsto v_1,\; s_2 \mapsto v_1
+\end{align*}
+Both subnets reference the same VPC. This is precisely the data in a CloudFormation template where two \texttt{AWS::EC2::Subnet} resources have their \texttt{VpcId} property pointing (via \texttt{!Ref}) to the same \texttt{AWS::EC2::VPC}.
+\end{example}
+
+\subsection{CloudFormation as a Category}
+
+A fragment of the CloudFormation resource model can be expressed as a category. Objects are resource types and property types; morphisms are the ``references'' encoded by properties like \texttt{VpcId}, \texttt{SubnetId}, etc.
+
+For our running example, consider the resources needed for a \emph{public subnet} in AWS:
+\begin{itemize}
+  \item A VPC (with a CIDR block)
+  \item A Subnet (in the VPC, with its own CIDR)
+  \item An Internet Gateway
+  \item A VPC-Gateway Attachment (connecting IGW to VPC)
+  \item A Route Table (in the VPC)
+  \item A Route (default route through the IGW)
+  \item A Subnet-RouteTable Association
+\end{itemize}
+
+Each of these resources references others via its properties.
+
+\section{Limits in \texorpdfstring{$\Set$}{Set}}
+
+Before defining the right Kan extension, we need the concept of a \emph{limit}. In the category $\Set$, limits have a concrete description.
+
+\begin{definition}
+Let $D \colon \mathcal{J} \to \Set$ be a functor (a ``diagram'' of sets and functions). The \textbf{limit} of $D$, written $\varprojlim D$, is the set of all \emph{compatible families}: tuples $(x_j)_{j \in \mathcal{J}}$ with $x_j \in D(j)$ for each object $j$, such that for every morphism $\alpha \colon j \to j'$ in $\mathcal{J}$, we have $D(\alpha)(x_j) = x_{j'}$.
+\end{definition}
+
+In other words: pick one element from each set in the diagram, subject to the constraint that all the functions are respected.
+
+\begin{example}[Limit of a single set]
+If the diagram is a single set $A$ with no morphisms, a compatible family is just a choice of $a \in A$. The limit is $A$ itself.
+\end{example}
+
+\begin{example}[Limit of a function]
+\label{ex:limit-function}
+If the diagram is $A \xrightarrow{f} B$, a compatible family is a pair $(a, b)$ with $a \in A$, $b \in B$, and $f(a) = b$. Since $b$ is determined by $a$, the limit is isomorphic to $A$.
+\end{example}
+
+\begin{example}[Limit of disconnected sets (product)]
+\label{ex:limit-product}
+If the diagram has two sets $A$ and $B$ with no morphisms between them, a compatible family is any pair $(a, b)$. The limit is $A \times B$.
+\end{example}
+
+\begin{example}[Limit of the empty diagram]
+\label{ex:limit-empty}
+If the diagram has no objects at all, a compatible family is the empty tuple. There is exactly one empty tuple. The limit is $\{*\}$, the one-element set.
+
+This is the key fact: \textbf{the limit of nothing is one thing}.
+\end{example}
+
+\begin{example}[Limit involving the empty set]
+\label{ex:limit-with-empty}
+If the diagram contains a set $A = \emptyset$ (even among other non-empty sets), then picking $a \in A$ is impossible. The limit is $\emptyset$.
+
+Key fact: \textbf{an empty set in the diagram kills the limit}.
+\end{example}
+
+These five cases---single set, function, product, empty diagram, and empty set---cover all the behavior we will need.
+
+\section{The Right Kan Extension}
+
+\subsection{Setup}
+
+We have:
+\begin{itemize}
+  \item A \emph{pattern schema} $\mathcal{C}$ (the ``real'' resource structure we want to generate).
+  \item A \emph{simplified schema} $\mathcal{D}$ (the user-facing input interface).
+  \item A functor $G \colon \mathcal{D} \to \mathcal{C}$ (embedding the simplified view into the pattern).
+  \item An instance $I \colon \mathcal{D} \to \Set$ (the user's input data).
+\end{itemize}
+
+We want to produce an instance of $\mathcal{C}$---a fully populated template---from $I$.
+
+\subsection{Definition}
+
+\begin{definition}
+The \textbf{right Kan extension} of $I$ along $G$, written $\Pi_G I$, is a functor $\mathcal{C} \to \Set$ defined on objects by:
+\[
+(\Pi_G I)(c) \;=\; \varprojlim_{(d, f) \in (c \downarrow G)} I(d)
+\]
+where $(c \downarrow G)$ is the \emph{comma category} whose objects are pairs $(d, f)$ with $d \in \mathcal{D}$ and $f \colon c \to G(d)$ a morphism in $\mathcal{C}$.
+\end{definition}
+
+In plain language: to compute $(\Pi_G I)(c)$, we:
+\begin{enumerate}
+  \item Find all morphisms from $c$ to objects in the image of $G$.
+  \item Each such morphism $(d, f \colon c \to G(d))$ contributes the set $I(d)$.
+  \item Morphisms $h \colon d_1 \to d_2$ in $\mathcal{D}$ satisfying $G(h) \circ f_1 = f_2$ add the function $I(h)$ as a constraint between $I(d_1)$ and $I(d_2)$.
+  \item We take the limit of this diagram.
+\end{enumerate}
+
+\begin{remark}
+The phrase ``all morphisms from $c$ to objects in $G$'s image'' means all morphisms in $\mathcal{C}$ (including composites). If $\mathcal{C}$ is freely generated (no path equations), these are all directed paths in the generating graph from $c$ to some $G(d)$.
+\end{remark}
+
+\subsection{On morphisms}
+
+For a morphism $g \colon c \to c'$ in $\mathcal{C}$, the function $(\Pi_G I)(g) \colon (\Pi_G I)(c) \to (\Pi_G I)(c')$ is defined by \emph{restriction}: a compatible family for $c$ restricts to a compatible family for $c'$ by pre-composing each arrow with $g$.
+
+Concretely: if $\alpha = (\alpha_{d,f})_{(d,f) \in (c \downarrow G)}$ is a compatible family for $c$, then $(\Pi_G I)(g)(\alpha)$ is the family $\beta$ for $c'$ given by $\beta_{d, f'} = \alpha_{d, f' \circ g}$ (which exists because $f' \circ g \colon c \to G(d)$ is in $(c \downarrow G)$).
+
+\subsection{Intuition}
+
+The right Kan extension asks: ``What is the most general way to extend $I$ from $\mathcal{D}$ to all of $\mathcal{C}$, consistent with $G$?'' The answer is determined by what each object $c$ can ``see'' of $G$'s image:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{What $c$ sees} & \textbf{$(\Pi_G I)(c)$} \\
+\midrule
+Nothing (no paths to $G$'s image) & $\{*\}$ --- one default element \\
+One set $I(d)$ via one path & $I(d)$ \\
+One set via a function & Domain of the function \\
+Two independent sets & Product $I(d_1) \times I(d_2)$ \\
+A set containing $\emptyset$ & $\emptyset$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Worked Example: Public Subnet with Internet Gateway}
+
+\subsection{Pattern Schema \texorpdfstring{$\mathcal{C}$}{C}}
+
+\begin{definition}
+We define $\mathcal{C}$ as the free category on the following graph:
+\[
+\begin{tikzcd}[column sep=large, row sep=large]
+& \texttt{VpcBlock} \\
+\texttt{Subnet} \arrow[ru, "\texttt{vpc\_cidr} \circ \texttt{subnet\_vpc}"{description, near start}] \arrow[r, "\texttt{subnet\_vpc}"] \arrow[rd, "\texttt{subnet\_cidr}"'] & \texttt{VPC} \arrow[u, "\texttt{vpc\_cidr}"] \\
+& \texttt{SubnetBlock} \\
+\texttt{Attach} \arrow[ruu, bend left=10, "\texttt{vpc\_cidr} \circ \texttt{attach\_vpc}"{description}] \arrow[ru, "\texttt{attach\_vpc}"'] \arrow[r, "\texttt{attach\_igw}"] & \texttt{IGW} \arrow[r, "\texttt{igw\_toggle}"] & \texttt{GatewayToggle}
+\end{tikzcd}
+\]
+Generating morphisms:
+\begin{align*}
+\texttt{vpc\_cidr}   &\colon \texttt{VPC} \to \texttt{VpcBlock} \\
+\texttt{subnet\_vpc} &\colon \texttt{Subnet} \to \texttt{VPC} \\
+\texttt{subnet\_cidr}&\colon \texttt{Subnet} \to \texttt{SubnetBlock} \\
+\texttt{attach\_vpc} &\colon \texttt{Attach} \to \texttt{VPC} \\
+\texttt{attach\_igw} &\colon \texttt{Attach} \to \texttt{IGW} \\
+\texttt{igw\_toggle} &\colon \texttt{IGW} \to \texttt{GatewayToggle}
+\end{align*}
+Objects \texttt{VpcBlock}, \texttt{SubnetBlock}, and \texttt{GatewayToggle} are ``leaf'' types with no outgoing morphisms.
+\end{definition}
+
+\begin{remark}
+The objects \texttt{VpcBlock} and \texttt{SubnetBlock} are idealizations. In the real CloudFormation schema, both are just \texttt{String}. We split them into distinct types because they play semantically distinct roles. This is a deliberate design choice by the pattern author (see Section~\ref{sec:design-choices}).
+\end{remark}
+
+\subsection{Simplified Schema \texorpdfstring{$\mathcal{D}$}{D}}
+
+\begin{definition}
+$\mathcal{D}$ is the free category on:
+\[
+\begin{tikzcd}
+\texttt{VpcBlock} & \texttt{Net} \arrow[l, "\texttt{net\_vpcblock}"'] \arrow[r, "\texttt{net\_subblock}"] & \texttt{SubnetBlock} \\
+& \texttt{GatewayToggle} &
+\end{tikzcd}
+\]
+The object \texttt{GatewayToggle} is isolated (no morphisms to or from it in $\mathcal{D}$).
+\end{definition}
+
+\subsection{Functor \texorpdfstring{$G \colon \mathcal{D} \to \mathcal{C}$}{G: D -> C}}
+
+\begin{align*}
+G(\texttt{Net})           &= \texttt{Subnet} \\
+G(\texttt{VpcBlock})      &= \texttt{VpcBlock} \\
+G(\texttt{SubnetBlock})   &= \texttt{SubnetBlock} \\
+G(\texttt{GatewayToggle}) &= \texttt{GatewayToggle}
+\end{align*}
+On morphisms:
+\begin{align*}
+G(\texttt{net\_vpcblock}) &= \texttt{vpc\_cidr} \circ \texttt{subnet\_vpc} \colon \texttt{Subnet} \to \texttt{VpcBlock} \\
+G(\texttt{net\_subblock}) &= \texttt{subnet\_cidr} \colon \texttt{Subnet} \to \texttt{SubnetBlock}
+\end{align*}
+
+\begin{remark}
+Why $G(\texttt{Net}) = \texttt{Subnet}$ and not $\texttt{VPC}$? The functor must map $\texttt{net\_subblock} \colon \texttt{Net} \to \texttt{SubnetBlock}$ to a morphism $G(\texttt{Net}) \to \texttt{SubnetBlock}$ in $\mathcal{C}$. The only object with a path to \texttt{SubnetBlock} is \texttt{Subnet} (via \texttt{subnet\_cidr}). \texttt{VPC} has no such path.
+\end{remark}
+
+\subsection{Instance \texorpdfstring{$I \colon \mathcal{D} \to \Set$}{I: D -> Set}}
+
+The user provides:
+\begin{align*}
+I(\texttt{Net})           &= \{ n \} \\
+I(\texttt{VpcBlock})      &= \{ \text{``10.0.0.0/16''} \} \\
+I(\texttt{SubnetBlock})   &= \{ \text{``10.0.1.0/24''} \} \\
+I(\texttt{GatewayToggle}) &= \{ * \}
+\end{align*}
+With functions:
+\begin{align*}
+I(\texttt{net\_vpcblock}) &\colon n \mapsto \text{``10.0.0.0/16''} \\
+I(\texttt{net\_subblock}) &\colon n \mapsto \text{``10.0.1.0/24''}
+\end{align*}
+
+\subsection{Computing \texorpdfstring{$\Pi_G I$}{Pi\_G I}}
+
+We compute $(\Pi_G I)(c)$ for each object $c$ in $\mathcal{C}$.
+
+\subsubsection*{$c = \texttt{Subnet}$}
+
+Morphisms from \texttt{Subnet} to objects in $G$'s image $\{\texttt{Subnet}, \texttt{VpcBlock}, \texttt{SubnetBlock}, \texttt{GatewayToggle}\}$:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Morphism in $\mathcal{C}$ & Target & $d \in \mathcal{D}$ \\
+\midrule
+$\id_{\texttt{Subnet}}$ & $\texttt{Subnet} = G(\texttt{Net})$ & \texttt{Net} \\
+$\texttt{vpc\_cidr} \circ \texttt{subnet\_vpc}$ & $\texttt{VpcBlock} = G(\texttt{VpcBlock})$ & \texttt{VpcBlock} \\
+$\texttt{subnet\_cidr}$ & $\texttt{SubnetBlock} = G(\texttt{SubnetBlock})$ & \texttt{SubnetBlock} \\
+\bottomrule
+\end{tabular}
+\end{center}
+(No path from \texttt{Subnet} to \texttt{GatewayToggle} exists.)
+
+The diagram in $\Set$ is:
+\[
+\begin{tikzcd}
+& I(\texttt{VpcBlock}) = \{\text{``10.0.0.0/16''}\} \\
+I(\texttt{Net}) = \{n\} \arrow[ru, "I(\texttt{net\_vpcblock})"] \arrow[rd, "I(\texttt{net\_subblock})"'] \\
+& I(\texttt{SubnetBlock}) = \{\text{``10.0.1.0/24''}\}
+\end{tikzcd}
+\]
+The connecting morphisms arise because $G(\texttt{net\_vpcblock}) \circ \id = \texttt{vpc\_cidr} \circ \texttt{subnet\_vpc}$ (matches the row for \texttt{VpcBlock}), and similarly for \texttt{net\_subblock}.
+
+A compatible family is a triple $(a, b, c)$ with $a \in I(\texttt{Net})$, $b \in I(\texttt{VpcBlock})$, $c \in I(\texttt{SubnetBlock})$, satisfying $I(\texttt{net\_vpcblock})(a) = b$ and $I(\texttt{net\_subblock})(a) = c$. Since $b$ and $c$ are forced:
+\[
+(\Pi_G I)(\texttt{Subnet}) = \{n\}
+\]
+One subnet.
+
+\subsubsection*{$c = \texttt{VPC}$}
+
+Morphisms from \texttt{VPC} to $G$'s image: only $\texttt{vpc\_cidr} \colon \texttt{VPC} \to \texttt{VpcBlock}$, with $d = \texttt{VpcBlock}$.
+
+Diagram: the single set $I(\texttt{VpcBlock}) = \{\text{``10.0.0.0/16''}\}$.
+
+By Example~\ref{ex:limit-function} (limit of a single set):
+\[
+(\Pi_G I)(\texttt{VPC}) = \{\text{``10.0.0.0/16''}\}
+\]
+One VPC.
+
+\subsubsection*{$c = \texttt{IGW}$}
+
+Morphisms from \texttt{IGW} to $G$'s image: $\texttt{igw\_toggle} \colon \texttt{IGW} \to \texttt{GatewayToggle} = G(\texttt{GatewayToggle})$, with $d = \texttt{GatewayToggle}$.
+
+Diagram: the single set $I(\texttt{GatewayToggle}) = \{*\}$.
+
+\[
+(\Pi_G I)(\texttt{IGW}) = \{*\}
+\]
+One internet gateway, \textbf{created from a toggle flag}, not from direct user specification of a gateway.
+
+\subsubsection*{$c = \texttt{Attach}$}
+
+Morphisms from \texttt{Attach} to $G$'s image:
+\begin{itemize}
+  \item $\texttt{vpc\_cidr} \circ \texttt{attach\_vpc} \colon \texttt{Attach} \to \texttt{VpcBlock}$, giving $d = \texttt{VpcBlock}$
+  \item $\texttt{igw\_toggle} \circ \texttt{attach\_igw} \colon \texttt{Attach} \to \texttt{GatewayToggle}$, giving $d = \texttt{GatewayToggle}$
+\end{itemize}
+
+No morphism in $\mathcal{D}$ connects \texttt{VpcBlock} and \texttt{GatewayToggle}, so the diagram is two disconnected sets.
+
+By Example~\ref{ex:limit-product}:
+\[
+(\Pi_G I)(\texttt{Attach}) = I(\texttt{VpcBlock}) \times I(\texttt{GatewayToggle}) = \{\text{``10.0.0.0/16''}\} \times \{*\} \cong \{*\}
+\]
+One attachment.
+
+\subsubsection*{$c = \texttt{VpcBlock}$}
+
+Only $\id \colon \texttt{VpcBlock} \to G(\texttt{VpcBlock})$. Limit is $I(\texttt{VpcBlock}) = \{\text{``10.0.0.0/16''}\}$.
+
+\subsubsection*{$c = \texttt{SubnetBlock}$}
+
+Only $\id \colon \texttt{SubnetBlock} \to G(\texttt{SubnetBlock})$. Limit is $I(\texttt{SubnetBlock}) = \{\text{``10.0.1.0/24''}\}$.
+
+\subsubsection*{$c = \texttt{GatewayToggle}$}
+
+Only $\id \colon \texttt{GatewayToggle} \to G(\texttt{GatewayToggle})$. Limit is $I(\texttt{GatewayToggle}) = \{*\}$.
+
+\subsection{Summary of Object-Level Computation}
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+\textbf{Object $c$} & \textbf{$(\Pi_G I)(c)$} & \textbf{Count} \\
+\midrule
+\texttt{Subnet}        & $\{n\}$ & 1 \\
+\texttt{VPC}           & $\{\text{``10.0.0.0/16''}\}$ & 1 \\
+\texttt{IGW}           & $\{*\}$ & 1 \\
+\texttt{Attach}        & $\{(\text{``10.0.0.0/16''}, *)\}$ & 1 \\
+\texttt{VpcBlock}      & $\{\text{``10.0.0.0/16''}\}$ & 1 \\
+\texttt{SubnetBlock}   & $\{\text{``10.0.1.0/24''}\}$ & 1 \\
+\texttt{GatewayToggle} & $\{*\}$ & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Computing Morphisms}
+
+We verify that the morphisms (reference functions) in the resulting instance are correctly wired.
+
+\paragraph{$\texttt{subnet\_vpc} \colon \texttt{Subnet} \to \texttt{VPC}$.}
+The compatible family for \texttt{Subnet} assigns an element to each arrow from \texttt{Subnet} to $G$'s image. In particular, it assigns $\text{``10.0.0.0/16''}$ to the arrow $\texttt{vpc\_cidr} \circ \texttt{subnet\_vpc}$ (forced by the constraint $I(\texttt{net\_vpcblock})(n) = \text{``10.0.0.0/16''}$).
+
+The compatible family for \texttt{VPC} assigns $\text{``10.0.0.0/16''}$ to the arrow $\texttt{vpc\_cidr}$.
+
+Restricting along $\texttt{subnet\_vpc}$: the arrow $(\texttt{VpcBlock}, \texttt{vpc\_cidr})$ in VPC's comma category becomes $(\texttt{VpcBlock}, \texttt{vpc\_cidr} \circ \texttt{subnet\_vpc})$ in Subnet's comma category. Both assign $\text{``10.0.0.0/16''}$.
+\[
+(\Pi_G I)(\texttt{subnet\_vpc}) \colon n \mapsto \text{``10.0.0.0/16''}
+\]
+The subnet references the (unique) VPC. Correct.
+
+\paragraph{$\texttt{attach\_igw} \colon \texttt{Attach} \to \texttt{IGW}$.}
+Attach's family includes the component at $(\texttt{GatewayToggle}, \texttt{igw\_toggle} \circ \texttt{attach\_igw})$, which is $*$.
+
+IGW's family is just the component at $(\texttt{GatewayToggle}, \texttt{igw\_toggle})$, which is $*$.
+
+Restricting: $\texttt{igw\_toggle}$ pre-composed with $\texttt{attach\_igw}$ gives $\texttt{igw\_toggle} \circ \texttt{attach\_igw}$. Same component. So:
+\[
+(\Pi_G I)(\texttt{attach\_igw}) \colon (\text{``10.0.0.0/16''}, *) \mapsto *
+\]
+The attachment references the (unique) internet gateway. Correct.
+
+\subsection{The Resulting Template}
+
+Interpreting $\Pi_G I$ as a CloudFormation template:
+
+\begin{verbatim}
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.1.0/24"
+  IGW:
+    Type: AWS::EC2::InternetGateway
+  Attach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+\end{verbatim}
+
+\section{Boolean Toggles via the Empty Set}
+\label{sec:toggle}
+
+\subsection{Disabling the Internet Gateway}
+
+If the user sets $I(\texttt{GatewayToggle}) = \emptyset$, the computation changes:
+
+\paragraph{$c = \texttt{IGW}$:} Diagram contains $I(\texttt{GatewayToggle}) = \emptyset$. By Example~\ref{ex:limit-with-empty}, the limit is $\emptyset$.
+\[
+(\Pi_G I)(\texttt{IGW}) = \emptyset
+\]
+
+\paragraph{$c = \texttt{Attach}$:} Diagram contains $I(\texttt{VpcBlock}) \times I(\texttt{GatewayToggle}) = \{\text{``10.0.0.0/16''}\} \times \emptyset = \emptyset$.
+\[
+(\Pi_G I)(\texttt{Attach}) = \emptyset
+\]
+
+\paragraph{All other objects:} \texttt{Subnet}, \texttt{VPC}, etc.\ have no paths to \texttt{GatewayToggle}, so they are unaffected.
+
+\subsection{Cascade Semantics}
+
+The empty set \emph{propagates}: any object $c$ that can reach $\texttt{GatewayToggle}$ via a directed path in $\mathcal{C}$ will see $\emptyset$ in its diagram, and its limit will be $\emptyset$ as well.
+
+In this example:
+\begin{itemize}
+  \item \texttt{IGW} can reach \texttt{GatewayToggle} (directly). Killed.
+  \item \texttt{Attach} can reach \texttt{GatewayToggle} (through \texttt{IGW}). Killed.
+  \item \texttt{Subnet} cannot reach \texttt{GatewayToggle}. Survives.
+\end{itemize}
+
+This mirrors the CDK behavior: setting \texttt{createInternetGateway: false} removes both the gateway and its attachment, but not the VPC or subnet.
+
+\subsection{General Principle}
+
+\begin{proposition}
+Let $T$ be a ``toggle'' object in $\mathcal{C}$ that is in the image of $G$, and let $I(G^{-1}(T))$ be the set assigned to it. Then:
+\begin{itemize}
+  \item If $I(G^{-1}(T)) = \{*\}$: all objects with a path to $T$ get (at least) one element.
+  \item If $I(G^{-1}(T)) = \emptyset$: all objects with a path to $T$ get zero elements.
+\end{itemize}
+This gives a clean ``boolean toggle'' semantics: $\{*\}$ means ``create,'' $\emptyset$ means ``don't create,'' and the cascade is automatic.
+\end{proposition}
+
+\section{Cardinality Control and Pairing}
+\label{sec:cardinality}
+
+\subsection{Multiplicity via Set Cardinality}
+
+The boolean toggle is the special case of a more general mechanism. If we replace $\{*\}$ with a set of $n$ elements, we get $n$ copies of dependent resources.
+
+\subsection{Example: NAT Gateways}
+
+In AWS, each NAT gateway requires a dedicated Elastic IP and a route in the private route table. If the user requests 3 NAT gateways, we need 3 EIPs, 3 NATs, and 3 routes---bijectively paired.
+
+\subsubsection{Extended Pattern Schema}
+
+We add to $\mathcal{C}$:
+\begin{align*}
+\texttt{nat\_subnet} &\colon \texttt{NAT} \to \texttt{Subnet} \\
+\texttt{nat\_eip}    &\colon \texttt{NAT} \to \texttt{EIP} \\
+\texttt{nat\_count}  &\colon \texttt{NAT} \to \texttt{NatCount} \\
+\texttt{eip\_count}  &\colon \texttt{EIP} \to \texttt{NatCount} \\
+\texttt{route\_rt}   &\colon \texttt{Route} \to \texttt{RT} \\
+\texttt{route\_nat}  &\colon \texttt{Route} \to \texttt{NAT} \\
+\texttt{rt\_vpc}     &\colon \texttt{RT} \to \texttt{VPC}
+\end{align*}
+with the \textbf{path equation}:
+\begin{equation}
+\label{eq:pairing}
+\texttt{nat\_count} = \texttt{eip\_count} \circ \texttt{nat\_eip}
+\end{equation}
+
+\begin{remark}
+Equation~\eqref{eq:pairing} means $\mathcal{C}$ is \emph{not} a free category---it is a category presented by generators and this relation. The two composites $\texttt{NAT} \to \texttt{NatCount}$ (one direct via \texttt{nat\_count}, one through EIP) are \emph{equal}. This is essential for the pairing mechanism.
+\end{remark}
+
+\subsubsection{Extended Simplified Schema}
+
+Add \texttt{NatCount} to $\mathcal{D}$ (isolated---no morphisms to or from it), and set $G(\texttt{NatCount}) = \texttt{NatCount}$.
+
+\subsubsection{User Instance}
+
+$I(\texttt{NatCount}) = \{1, 2, 3\}$ (a three-element set; the specific elements don't matter, only the cardinality).
+
+\subsubsection{Computing $(\Pi_G I)(\texttt{EIP})$}
+
+Paths from \texttt{EIP} to $G$'s image: only $\texttt{eip\_count} \colon \texttt{EIP} \to \texttt{NatCount}$.
+
+Diagram: $I(\texttt{NatCount}) = \{1, 2, 3\}$ alone.
+
+\[
+(\Pi_G I)(\texttt{EIP}) = \{1, 2, 3\}
+\]
+Three EIPs.
+
+\subsubsection{Computing $(\Pi_G I)(\texttt{NAT})$}
+
+Paths from \texttt{NAT} to $G$'s image:
+\begin{itemize}
+  \item $\texttt{nat\_count} \colon \texttt{NAT} \to \texttt{NatCount}$, giving $d = \texttt{NatCount}$
+  \item $\texttt{eip\_count} \circ \texttt{nat\_eip} \colon \texttt{NAT} \to \texttt{NatCount}$, giving $d = \texttt{NatCount}$
+  \item $\texttt{nat\_subnet} \colon \texttt{NAT} \to \texttt{Subnet} = G(\texttt{Net})$, giving $d = \texttt{Net}$
+  \item (Plus paths through \texttt{Subnet} to \texttt{VpcBlock} and \texttt{SubnetBlock})
+\end{itemize}
+
+By the path equation~\eqref{eq:pairing}, the first two paths are \emph{equal} in $\mathcal{C}$. They are the same object in the comma category---contributing $I(\texttt{NatCount})$ only once.
+
+The diagram decomposes into:
+\begin{itemize}
+  \item A connected component involving $I(\texttt{Net})$, $I(\texttt{VpcBlock})$, $I(\texttt{SubnetBlock})$ (all singletons, linked by $I(\texttt{net\_vpcblock})$ and $I(\texttt{net\_subblock})$)---limit $\cong \{n\}$.
+  \item A disconnected $I(\texttt{NatCount}) = \{1,2,3\}$.
+\end{itemize}
+
+By Example~\ref{ex:limit-product}, the limit of disconnected components is the product:
+\[
+(\Pi_G I)(\texttt{NAT}) = \{n\} \times \{1,2,3\} \cong \{(n,1), (n,2), (n,3)\}
+\]
+Three NAT gateways.
+
+\subsubsection{The Pairing Morphism}
+
+The morphism $\texttt{nat\_eip} \colon \texttt{NAT} \to \texttt{EIP}$ induces a function:
+\[
+(\Pi_G I)(\texttt{nat\_eip}) \colon \{(n,1),(n,2),(n,3)\} \to \{1,2,3\}
+\]
+Restricting: EIP's comma category has one entry $(\texttt{NatCount}, \texttt{eip\_count})$. Pre-composing with $\texttt{nat\_eip}$ gives $(\texttt{NatCount}, \texttt{eip\_count} \circ \texttt{nat\_eip}) = (\texttt{NatCount}, \texttt{nat\_count})$ (by the path equation). This is exactly the entry in NAT's comma category that contributes the \texttt{NatCount} component.
+
+Therefore: $(\Pi_G I)(\texttt{nat\_eip})(n, k) = k$.
+
+\textbf{NAT gateway $k$ uses EIP $k$.} The bijection is enforced by the path equation.
+
+\subsubsection{Without the Path Equation}
+
+If we had \emph{not} imposed equation~\eqref{eq:pairing}, the two paths $\texttt{nat\_count}$ and $\texttt{eip\_count} \circ \texttt{nat\_eip}$ would be distinct morphisms in $\mathcal{C}$, contributing $I(\texttt{NatCount})$ \emph{twice} independently. The limit would include a free choice for each:
+\[
+(\Pi_G I)(\texttt{NAT}) = \{n\} \times \{1,2,3\} \times \{1,2,3\} \cong 9 \text{ elements}
+\]
+Nine NAT gateways---one for each pair (my index, my EIP's index). This would allow NAT \#1 to use EIP \#3, etc.
+
+The equation collapses the product to the diagonal: $j = k$ always. Path equations encode \textbf{resource-pairing constraints}.
+
+\subsection{Summary of Cardinality Mechanisms}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{User parameter} & \textbf{Categorical encoding} & \textbf{Effect} \\
+\midrule
+Boolean (exists/doesn't) & $\emptyset$ vs.\ $\{*\}$ & Cascade kill / create \\
+Count (how many) & Set of that cardinality & Product --- one copy per element \\
+Pairing (X \#$k$ uses Y \#$k$) & Path equation & Diagonal of the product \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Design Choices}
+\label{sec:design-choices}
+
+The right Kan extension is mechanical: given $\mathcal{C}$, $\mathcal{D}$, $G$, and $I$, the result is determined. The \emph{creative} work is in choosing these inputs.
+
+\subsection{Choosing the Pattern Schema $\mathcal{C}$}
+
+The pattern schema is \emph{not} the full CloudFormation schema. It is a small, hand-selected subcategory representing ``what this pattern creates.'' The designer decides:
+\begin{itemize}
+  \item Which resource types to include.
+  \item How to idealize property types (splitting \texttt{String} into role-specific types like \texttt{VpcBlock}, \texttt{SubnetBlock}).
+  \item Which path equations to impose.
+\end{itemize}
+
+Including an object in $\mathcal{C}$ means committing to generating it. Objects not in $\mathcal{C}$ are simply outside the scope of this pattern.
+
+\subsection{Choosing the Functor $G$}
+
+$G$ determines what is user-facing versus what is automatic:
+\begin{itemize}
+  \item Objects in $G$'s image are ``controlled by user input.''
+  \item Objects not in $G$'s image but reachable from it get determined values.
+  \item Objects with no paths to $G$'s image get default singletons.
+\end{itemize}
+
+The functor $G$ is constrained by the morphism structure of $\mathcal{C}$: $G$ must map each morphism in $\mathcal{D}$ to an actual path in $\mathcal{C}$. This limits where $G$ can land.
+
+\subsection{Type Idealization}
+
+In the real CloudFormation schema, \texttt{VPC.CidrBlock} and \texttt{Subnet.CidrBlock} are both of type \texttt{String}. If we keep them as one object \texttt{String} in $\mathcal{C}$, then any functor $G$ must send them to the same set---forcing VPC and Subnet to have the same CIDR.
+
+Splitting into \texttt{VpcBlock} and \texttt{SubnetBlock} lets them vary independently. The cost: when rendering the final template, we must ``unwrap'' these idealized types back into plain strings. This is a separate rendering step (see Section~\ref{sec:rendering}).
+
+\subsection{The Rendering Layer}
+\label{sec:rendering}
+
+The right Kan extension produces an abstract instance $\Pi_G I \colon \mathcal{C} \to \Set$. To produce an actual CloudFormation template, a \emph{rendering function} maps each element to concrete resource properties. The rendering layer handles everything the functorial layer cannot:
+\begin{itemize}
+  \item String interpolation and naming conventions.
+  \item Hard-coded defaults (e.g., \texttt{DestinationCidrBlock: "0.0.0.0/0"}).
+  \item Computed values (CIDR arithmetic, AZ selection).
+  \item Value-dependent conditionals.
+\end{itemize}
+
+The separation is:
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Functorial layer ($\Pi_G$)} & \textbf{Rendering layer} \\
+\midrule
+Which resources exist & What their property values are \\
+How many of each & Names, tags, computed strings \\
+What references what & Hard-coded constants \\
+Cascade existence/non-existence & Value-dependent branching \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Limitations}
+
+The functorial approach handles \emph{structure} (existence, multiplicity, wiring) but not \emph{computation} (value derivation, conditional logic). Concretely:
+
+\begin{enumerate}
+  \item \textbf{No value computation.} Elements of sets are opaque atoms. The formalism cannot derive \texttt{"10.0.1.0/24"} from \texttt{"10.0.0.0/16"} by CIDR arithmetic.
+
+  \item \textbf{No value-dependent branching.} Branching on existence ($\emptyset$ vs.\ $\{*\}$) is possible; branching on the \emph{content} of a value is not.
+
+  \item \textbf{No derived cardinalities.} The formalism cannot express ``create $\min(n, m)$ NATs where $n$ = number of AZs.'' Each set's cardinality is independently specified by the user.
+
+  \item \textbf{No non-uniform distribution.} Distributing $k$ NATs across $n$ subnets (where $k \neq n$) requires a partial function, which the limit cannot produce---it gives either the full product or the diagonal (via path equations), nothing in between.
+
+  \item \textbf{No global validation.} Checking that total subnet space fits within the VPC CIDR requires inspecting all elements collectively. The limit is computed pointwise.
+\end{enumerate}
+
+These limitations are fundamental: the right Kan extension is a \emph{structural} operation, not a computational one. A practical system would use $\Pi_G$ for the structural skeleton and a conventional programming layer for value computation.
+
+\section{Relationship to Other Constructions}
+
+\subsection{The Adjoint Triple}
+
+Given $G \colon \mathcal{D} \to \mathcal{C}$, there are three induced functors $\Set^{\mathcal{D}} \to \Set^{\mathcal{C}}$ (or vice versa):
+\[
+\Sigma_G \dashv \Delta_G \dashv \Pi_G
+\]
+where:
+\begin{itemize}
+  \item $\Delta_G$ (pullback/restriction): given $G \colon \mathcal{D} \to \mathcal{C}$ and an instance $J \colon \mathcal{C} \to \Set$, produces $J \circ G \colon \mathcal{D} \to \Set$. This goes from $\Set^{\mathcal{C}}$ to $\Set^{\mathcal{D}}$.
+  \item $\Sigma_G$ (left Kan extension): ``freely'' extends an instance of $\mathcal{D}$ to $\mathcal{C}$. Produces elements only at objects \emph{reachable from} $G$'s image along forward morphisms. Tends to produce empty sets for objects that don't receive morphisms from $G$'s image.
+  \item $\Pi_G$ (right Kan extension): ``universally'' extends an instance of $\mathcal{D}$ to $\mathcal{C}$. Produces default singletons for disconnected objects. This is the one useful for template generation.
+\end{itemize}
+
+For our application, $\Pi_G$ is the right choice because:
+\begin{itemize}
+  \item Default resources (IGW) should \emph{exist} without user specification ($\Pi_G$ gives $\{*\}$; $\Sigma_G$ gives $\emptyset$).
+  \item References should be correctly populated (the limit ensures compatibility).
+\end{itemize}
+
+\subsection{Pullback for Schema Migration}
+
+If two pattern schemas $\mathcal{C}_1$ and $\mathcal{C}_2$ are connected by a functor $F \colon \mathcal{C}_1 \to \mathcal{C}_2$, the pullback $\Delta_F$ mechanically translates instances of $\mathcal{C}_2$ into instances of $\mathcal{C}_1$. This could model migrations between different versions of a pattern schema.
+
+\begin{thebibliography}{9}
+\bibitem{fong2019invitation}
+B.~Fong and D.~I.~Spivak, \emph{An Invitation to Applied Category Theory: Seven Sketches in Compositionality}, Cambridge University Press, 2019.
+\end{thebibliography}
+
+\end{document}

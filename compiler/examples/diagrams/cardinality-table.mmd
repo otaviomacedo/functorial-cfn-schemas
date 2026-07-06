@@ -1,0 +1,61 @@
+---
+title: "Cardinality Map: D-dimensions → C-resources"
+---
+%%{ init: { 'theme': 'base', 'themeVariables': { 'fontSize': '11px' } } }%%
+
+%% Technique: "Hasse/expansion diagram" — D objects at top,
+%% C objects at bottom, edges show which D-dimensions determine
+%% the cardinality of each C-resource. Width of edge = multiplier.
+
+graph TB
+
+%% D-dimensions (inputs)
+N(["Network<br/><i>|N|=1</i>"]):::dim
+P(["PublicTier<br/><i>|P|=3</i>"]):::dim
+V(["PrivateTier<br/><i>|V|=3</i>"]):::dim
+I(["IsolatedTier<br/><i>|I|=3</i>"]):::dim
+T(["IgwToggle<br/><i>|T|∈{0,1}</i>"]):::dim
+S(["NatSlot<br/><i>|S|=3</i>"]):::dim
+W(["VpnToggle<br/><i>|W|∈{0,1}</i>"]):::dim
+E(["Endpoint<br/><i>|E|=2</i>"]):::dim
+
+%% C-resources (outputs) grouped by role
+VPC["VPC<br/>= 1"]:::res
+PubSub["PublicSubnet<br/>= |P|"]:::res
+PrivSub["PrivateSubnet<br/>= |V|"]:::res
+IsoSub["IsolatedSubnet<br/>= |I|"]:::res
+PubRT["PublicRT<br/>= |P|"]:::res
+PrivRT["PrivateRT<br/>= |V|"]:::res
+IsoRT["IsolatedRT<br/>= |I|"]:::res
+Assoc["RT Assocs<br/>= |P|+|V|+|I|"]:::res
+IGW["IGW + Attach<br/>= |T|"]:::res
+PubRoute["PublicRoute<br/>= |P|·|T|"]:::res
+EIP["EIP<br/>= |S|"]:::res
+NatGW["NatGateway<br/>= |S|"]:::res
+PrivRoute["PrivateRoute<br/>= |V|"]:::res
+VPNGW["VPN*<br/>= |W|"]:::res
+GWEnd["GatewayEndpoint<br/>= |E|"]:::res
+
+%% Dependency edges
+N --> VPC
+P --> PubSub
+P --> PubRT
+V --> PrivSub
+V --> PrivRT
+I --> IsoSub
+I --> IsoRT
+P --> Assoc
+V --> Assoc
+I --> Assoc
+T --> IGW
+P --> PubRoute
+T --> PubRoute
+S --> EIP
+S --> NatGW
+V --> PrivRoute
+W --> VPNGW
+E --> GWEnd
+
+%% Styles
+classDef dim fill:#e8f4fd,stroke:#1565C0,stroke-width:2px,rx:10,ry:10
+classDef res fill:#fff8e1,stroke:#F57F17,stroke-width:1px

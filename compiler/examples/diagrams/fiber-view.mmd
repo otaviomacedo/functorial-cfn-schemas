@@ -1,0 +1,162 @@
+---
+title: "Functor G: D → C (fiber view)"
+---
+%%{ init: { 'theme': 'base', 'themeVariables': { 'fontSize': '12px' } } }%%
+
+%% Color-coding encodes G: same color in D and C = functor mapping.
+%% Cross-fiber arrows show non-trivial inter-fiber references.
+
+graph TB
+
+%% ═══════════════════════════════════════════════════════════
+%% D: The simplified (user-facing) category
+%% ═══════════════════════════════════════════════════════════
+
+subgraph D ["D (Simplified Schema — what the user writes)"]
+  direction LR
+  DN(["Network"]):::d_net
+  DPub(["PublicTier"]):::d_pub
+  DPriv(["PrivateTier"]):::d_priv
+  DIso(["IsolatedTier"]):::d_iso
+  DIgw(["IgwToggle"]):::d_igw
+  DNat(["NatSlot"]):::d_nat
+  DVpn(["VpnToggle"]):::d_vpn
+  DEndp(["Endpoint"]):::d_endp
+
+  %% Morphisms in D
+  DPub -->|pubtier_net| DN
+  DPriv -->|privtier_net| DN
+  DIso -->|isotier_net| DN
+  DNat -->|natslot_pub| DPub
+  DEndp -->|endp_net| DN
+end
+
+%% ═══════════════════════════════════════════════════════════
+%% C: The CloudFormation category, shown as fiber clusters
+%% ═══════════════════════════════════════════════════════════
+
+subgraph C ["C (CloudFormation Schema — what gets generated)"]
+  direction LR
+
+  subgraph fiber_net ["Network fiber"]
+    VPC["VPC"]:::c_net
+  end
+
+  subgraph fiber_pub ["PublicTier fiber"]
+    direction TB
+    PubSub["PublicSubnet"]:::c_pub
+    PubRT["PublicRT"]:::c_pub
+    PubAssoc["PublicRTAssoc"]:::c_pub
+    PubRoute["PublicRoute"]:::c_pub
+    PubRT -->|pubrt_sub| PubSub
+    PubAssoc -->|pubassoc_rt| PubRT
+    PubAssoc -->|pubassoc_subnet| PubSub
+    PubRoute -->|pubroute_rt| PubRT
+  end
+
+  subgraph fiber_priv ["PrivateTier fiber"]
+    direction TB
+    PrivSub["PrivateSubnet"]:::c_priv
+    PrivRT["PrivateRT"]:::c_priv
+    PrivAssoc["PrivateRTAssoc"]:::c_priv
+    PrivRoute["PrivateRoute"]:::c_priv
+    PrivRT -->|privrt_sub| PrivSub
+    PrivAssoc -->|privassoc_rt| PrivRT
+    PrivAssoc -->|privassoc_subnet| PrivSub
+    PrivRoute -->|privroute_rt| PrivRT
+  end
+
+  subgraph fiber_iso ["IsolatedTier fiber"]
+    direction TB
+    IsoSub["IsolatedSubnet"]:::c_iso
+    IsoRT["IsolatedRT"]:::c_iso
+    IsoAssoc["IsolatedRTAssoc"]:::c_iso
+    IsoRT -->|isort_sub| IsoSub
+    IsoAssoc -->|isoassoc_rt| IsoRT
+    IsoAssoc -->|isoassoc_subnet| IsoSub
+  end
+
+  subgraph fiber_igw ["IgwToggle fiber"]
+    direction TB
+    IGW["IGW"]:::c_igw
+    IGWAtt["IGWAttach"]:::c_igw
+    IGWAtt -->|igwattach_igw| IGW
+  end
+
+  subgraph fiber_nat ["NatSlot fiber"]
+    direction TB
+    NatGW["NatGateway"]:::c_nat
+    EIP["EIP"]:::c_nat
+    NatGW -->|nat_eip| EIP
+  end
+
+  subgraph fiber_vpn ["VpnToggle fiber"]
+    direction TB
+    VPNGW["VPNGateway"]:::c_vpn
+    VPNAtt["VPNGWAttach"]:::c_vpn
+    VPNProp["VPNRouteProp"]:::c_vpn
+    VPNAtt -->|vpngwattach_vpngw| VPNGW
+    VPNProp -->|vpnprop_vpngw| VPNGW
+  end
+
+  subgraph fiber_endp ["Endpoint fiber"]
+    GWEndp["GatewayEndpoint"]:::c_endp
+  end
+
+  %% Cross-fiber morphisms
+  PubRoute -->|pubroute_igw| IGW
+  NatGW -->|nat_subnet| PubSub
+  PrivRoute -->|privroute_nat| NatGW
+end
+
+%% ═══════════════════════════════════════════════════════════
+%% Subgraph styles (colored borders to match node colors)
+%% ═══════════════════════════════════════════════════════════
+
+style D fill:#fafafa,stroke:#333,stroke-width:2px
+style C fill:#fafafa,stroke:#333,stroke-width:2px
+
+style fiber_net fill:#eceff1,stroke:#455a64,stroke-width:2px
+style fiber_pub fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+style fiber_priv fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+style fiber_iso fill:#fff3e0,stroke:#e65100,stroke-width:2px
+style fiber_igw fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+style fiber_nat fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+style fiber_vpn fill:#ffebee,stroke:#b71c1c,stroke-width:2px
+style fiber_endp fill:#e8eaf6,stroke:#283593,stroke-width:2px
+
+%% ═══════════════════════════════════════════════════════════
+%% Node styles: D nodes (rounded, saturated) and C nodes (square, lighter)
+%% ═══════════════════════════════════════════════════════════
+
+%% Network = slate
+classDef d_net fill:#cfd8dc,stroke:#455a64,stroke-width:2px,rx:15,ry:15
+classDef c_net fill:#eceff1,stroke:#455a64,stroke-width:1px
+
+%% PublicTier = blue
+classDef d_pub fill:#bbdefb,stroke:#1565c0,stroke-width:2px,rx:15,ry:15
+classDef c_pub fill:#e3f2fd,stroke:#1565c0,stroke-width:1px
+
+%% PrivateTier = green
+classDef d_priv fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,rx:15,ry:15
+classDef c_priv fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
+
+%% IsolatedTier = amber
+classDef d_iso fill:#ffe0b2,stroke:#e65100,stroke-width:2px,rx:15,ry:15
+classDef c_iso fill:#fff3e0,stroke:#e65100,stroke-width:1px
+
+%% IgwToggle = purple
+classDef d_igw fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px,rx:15,ry:15
+classDef c_igw fill:#f3e5f5,stroke:#6a1b9a,stroke-width:1px
+
+%% NatSlot = teal
+classDef d_nat fill:#b2dfdb,stroke:#00695c,stroke-width:2px,rx:15,ry:15
+classDef c_nat fill:#e0f2f1,stroke:#00695c,stroke-width:1px
+
+%% VpnToggle = red
+classDef d_vpn fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px,rx:15,ry:15
+classDef c_vpn fill:#ffebee,stroke:#b71c1c,stroke-width:1px
+
+%% Endpoint = indigo
+classDef d_endp fill:#c5cae9,stroke:#283593,stroke-width:2px,rx:15,ry:15
+classDef c_endp fill:#e8eaf6,stroke:#283593,stroke-width:1px

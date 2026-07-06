@@ -1,0 +1,5 @@
+/core/node_modules/
+/compiler/node_modules/
+/.idea/
+/compiler/.idea/
+/core/.idea/

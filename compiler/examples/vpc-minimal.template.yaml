@@ -1,0 +1,40 @@
+# A minimal isolated VPC: no internet, no NAT, just isolated subnets.
+#
+# Compare to CDK:
+#   new ec2.Vpc(this, 'VPC', {
+#     cidr: '10.0.0.0/16',
+#     natGateways: 0,
+#     createInternetGateway: false,
+#     subnetConfiguration: [
+#       { name: 'Isolated', subnetType: SubnetType.PRIVATE_ISOLATED, cidrMask: 24 },
+#     ],
+#   })
+#
+# This produces 7 resources: VPC + 2×(Subnet, RT, RTAssoc)
+
+Schema: ./vpc.schema.yaml
+
+Toggles:
+  IgwToggle: false
+  VpnToggle: false
+
+Resources:
+  MyVpc:
+    Type: Functorial::VPC::Network
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      DnsHostnames: true
+      DnsSupport: true
+      Tenancy: "default"
+
+  IsolatedA:
+    Type: Functorial::VPC::IsolatedTier
+    Properties:
+      CidrBlock: "10.0.0.0/24"
+      AvailabilityZone: "us-east-1a"
+
+  IsolatedB:
+    Type: Functorial::VPC::IsolatedTier
+    Properties:
+      CidrBlock: "10.0.1.0/24"
+      AvailabilityZone: "us-east-1b"

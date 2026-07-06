@@ -1,0 +1,259 @@
+# Schema: API Gateway (REST)
+#
+# A REST API with resources (path segments), methods, Lambda integrations,
+# deployment, and stage.
+#
+# Key structural invariant enforced by path equations:
+#   Method.RestApiId = Method.ResourceId.RestApiId
+#   Stage.RestApiId  = Stage.DeploymentId.RestApiId
+#
+# These are the "wiring bugs" that CFN doesn't catch but cause silent failures.
+# This schema makes them impossible by construction.
+#
+# Design note: Stage is a separate object in D (not folded into Api) because
+# there is no morphism from RestApi to StageName in C — functoriality forbids
+# the collapse. This is the framework enforcing correctness: the user must
+# acknowledge Stage as a real resource. Deployment is auto-created by Kan
+# extension (it has a path to DeployToggle and to RestApi via stage).
+
+# ============================================================================
+# C: The CloudFormation-level category
+# ============================================================================
+
+OriginalSchema:
+  Objects:
+    # --- Core API ---
+    RestApi:
+      CfnType: AWS::ApiGateway::RestApi
+      Properties:
+        Name:
+          Source: api_name
+        Description:
+          Source: api_description
+        EndpointConfiguration:
+          Default:
+            Types:
+              - REGIONAL
+
+    # --- Path Resources ---
+    Resource:
+      CfnType: AWS::ApiGateway::Resource
+      Properties:
+        RestApiId:
+          Source: resource_api
+          Via: Ref
+        ParentId:
+          Source: resource_api
+          Via: GetAtt.RootResourceId
+        PathPart:
+          Source: resource_path
+
+    # --- Methods ---
+    Method:
+      CfnType: AWS::ApiGateway::Method
+      Properties:
+        RestApiId:
+          Source: method_api
+        ResourceId:
+          Source: method_resource
+        HttpMethod:
+          Source: method_verb
+        AuthorizationType:
+          Source: method_auth
+
+    # --- Integrations (one per method) ---
+    Integration:
+      CfnType: AWS::ApiGateway::Integration
+      Properties:
+        Type:
+          Source: integration_type
+        IntegrationHttpMethod:
+          Default: "POST"
+        Uri:
+          Source: integration_uri
+
+    # --- Deployment ---
+    Deployment:
+      CfnType: AWS::ApiGateway::Deployment
+      Properties:
+        RestApiId:
+          Source: deployment_api
+      Structure:
+        Toggle:
+          Source: DeployToggle
+
+    # --- Stage ---
+    Stage:
+      CfnType: AWS::ApiGateway::Stage
+      Properties:
+        RestApiId:
+          Source: stage_api
+        DeploymentId:
+          Source: stage_deployment
+        StageName:
+          Source: stage_name
+
+    # --- Value objects ---
+    ApiName:
+      ValueType: String
+    ApiDescription:
+      ValueType: String
+    PathPart:
+      ValueType: String
+    HttpVerb:
+      ValueType: String
+    AuthType:
+      ValueType: String
+    IntegrationType:
+      ValueType: String
+    IntegrationUri:
+      ValueType: String
+    StageName:
+      ValueType: String
+
+    # --- Toggles ---
+    DeployToggle:
+      Toggle: true
+
+  Morphisms:
+    api_name: RestApi -> ApiName
+    api_description: RestApi -> ApiDescription
+    resource_api: Resource -> RestApi
+    resource_path: Resource -> PathPart
+    method_api: Method -> RestApi
+    method_resource: Method -> Resource
+    method_verb: Method -> HttpVerb
+    method_auth: Method -> AuthType
+    method_integration: Method -> Integration
+    integration_type: Integration -> IntegrationType
+    integration_uri: Integration -> IntegrationUri
+    deployment_api: Deployment -> RestApi
+    deployment_toggle: Deployment -> DeployToggle
+    stage_api: Stage -> RestApi
+    stage_deployment: Stage -> Deployment
+    stage_name: Stage -> StageName
+
+  Equations:
+    # Method's RestApiId must match its Resource's RestApiId.
+    # Without this, the Kan extension would let Method and Resource point
+    # to different RestApis — a valid CFN template that silently 404s.
+    - method_api = method_resource . resource_api
+    # Stage's RestApiId must match its Deployment's RestApiId.
+    - stage_api = stage_deployment . deployment_api
+
+
+# ============================================================================
+# D: The user-facing category
+# ============================================================================
+
+SimplifiedSchema:
+  Objects:
+    Api:
+      Type: Functorial::APIGW::Api
+      Properties:
+        Name:
+          Source: api_name
+        Description:
+          Source: api_description
+
+    Route:
+      Type: Functorial::APIGW::Route
+      Properties:
+        Path:
+          Source: route_path
+        Api:
+          Source: route_api
+
+    Method:
+      Type: Functorial::APIGW::Method
+      Properties:
+        HttpMethod:
+          Source: method_verb
+        Auth:
+          Source: method_auth
+        Route:
+          Source: method_route
+        IntegrationType:
+          Source: method_inttype
+        IntegrationUri:
+          Source: method_inturi
+
+    Stage:
+      Type: Functorial::APIGW::Stage
+      Properties:
+        StageName:
+          Source: stage_name
+        Api:
+          Source: stage_api
+
+    # Value objects
+    ApiName:
+      ValueType: String
+    ApiDescription:
+      ValueType: String
+    PathPart:
+      ValueType: String
+    HttpVerb:
+      ValueType: String
+    AuthType:
+      ValueType: String
+    IntegrationType:
+      ValueType: String
+    IntegrationUri:
+      ValueType: String
+    StageName:
+      ValueType: String
+    DeployToggle:
+      Toggle: true
+
+  Morphisms:
+    api_name: Api -> ApiName
+    api_description: Api -> ApiDescription
+    route_path: Route -> PathPart
+    route_api: Route -> Api
+    method_verb: Method -> HttpVerb
+    method_auth: Method -> AuthType
+    method_route: Method -> Route
+    method_inttype: Method -> IntegrationType
+    method_inturi: Method -> IntegrationUri
+    stage_name: Stage -> StageName
+    stage_api: Stage -> Api
+
+  Functor:
+    Objects:
+      Api: RestApi
+      Route: Resource
+      Method: Method
+      Stage: Stage
+      ApiName: ApiName
+      ApiDescription: ApiDescription
+      PathPart: PathPart
+      HttpVerb: HttpVerb
+      AuthType: AuthType
+      IntegrationType: IntegrationType
+      IntegrationUri: IntegrationUri
+      StageName: StageName
+      DeployToggle: DeployToggle
+
+    Morphisms:
+      api_name: api_name
+      api_description: api_description
+      route_path: resource_path
+      route_api: resource_api
+      method_verb: method_verb
+      method_auth: method_auth
+      method_route: method_resource
+      method_inttype: method_integration . integration_type
+      method_inturi: method_integration . integration_uri
+      stage_name: stage_name
+      stage_api: stage_api
+
+  # Macros: syntactic sugar that expands before the Kan extension runs.
+  # The user can write Methods inline on a Route; each element becomes a
+  # separate Method resource with a back-reference to the Route.
+  Macros:
+    Functorial::APIGW::Route.Methods:
+      ExpandsTo: Functorial::APIGW::Method
+      ElementProperty: HttpMethod
+      BackRef: Route
+      Forward: [IntegrationUri]

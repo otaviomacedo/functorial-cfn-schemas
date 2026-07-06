@@ -1,0 +1,61 @@
+# A simple REST API with two routes, using the Methods macro.
+#
+# Compare to CDK:
+#   const api = new apigateway.RestApi(this, 'ItemsApi', { ... });
+#   const items = api.root.addResource('items');
+#   items.addMethod('GET', new apigateway.LambdaIntegration(getItemsFn));
+#   items.addMethod('POST', new apigateway.LambdaIntegration(createItemFn));
+#   const item = items.addResource('{id}');
+#   item.addMethod('GET', new apigateway.LambdaIntegration(getItemFn));
+#   item.addMethod('DELETE', new apigateway.LambdaIntegration(deleteItemFn));
+#
+# Produces: RestApi(1) + Resource(2) + Method(4) + Integration(4)
+#           + Deployment(1) + Stage(1) = 13 resources
+#
+# The path equations guarantee that all Methods/Resources agree on RestApiId —
+# a misconfiguration that's easy to make in raw CFN and causes silent 404s.
+
+Schema: ./apigw.schema.yaml
+
+Resources:
+  ItemsApi:
+    Type: Functorial::APIGW::Api
+    Properties:
+      Name: "items-service"
+      Description: "Items CRUD API"
+
+  Prod:
+    Type: Functorial::APIGW::Stage
+    Properties:
+      StageName: "prod"
+      Api: ItemsApi
+
+  ItemsRoute:
+    Type: Functorial::APIGW::Route
+    Properties:
+      Path: "items"
+      Api: ItemsApi
+      # Macro: each entry in Methods becomes a separate Method resource.
+      # IntegrationUri is forwarded from the Route to each expanded Method.
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemsHandlerFn.Arn}/invocations"
+      Methods:
+        - HttpMethod: "GET"
+          Auth: "NONE"
+          IntegrationType: "AWS_PROXY"
+        - HttpMethod: "POST"
+          Auth: "IAM"
+          IntegrationType: "AWS_PROXY"
+
+  ItemRoute:
+    Type: Functorial::APIGW::Route
+    Properties:
+      Path: "{id}"
+      Api: ItemsApi
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemHandlerFn.Arn}/invocations"
+      Methods:
+        - HttpMethod: "GET"
+          Auth: "NONE"
+          IntegrationType: "AWS_PROXY"
+        - HttpMethod: "DELETE"
+          Auth: "IAM"
+          IntegrationType: "AWS_PROXY"

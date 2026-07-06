@@ -1,0 +1,65 @@
+# Same API as apigw-items-api.template.yaml, but written without macros.
+# This is what the macro expands to internally — both are valid inputs.
+
+Schema: ./apigw.schema.yaml
+
+Resources:
+  ItemsApi:
+    Type: Functorial::APIGW::Api
+    Properties:
+      Name: "items-service"
+      Description: "Items CRUD API"
+
+  Prod:
+    Type: Functorial::APIGW::Stage
+    Properties:
+      StageName: "prod"
+      Api: ItemsApi
+
+  ItemsRoute:
+    Type: Functorial::APIGW::Route
+    Properties:
+      Path: "items"
+      Api: ItemsApi
+
+  GetItems:
+    Type: Functorial::APIGW::Method
+    Properties:
+      HttpMethod: "GET"
+      Auth: "NONE"
+      Route: ItemsRoute
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemsHandlerFn.Arn}/invocations"
+
+  CreateItem:
+    Type: Functorial::APIGW::Method
+    Properties:
+      HttpMethod: "POST"
+      Auth: "IAM"
+      Route: ItemsRoute
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemsHandlerFn.Arn}/invocations"
+
+  ItemRoute:
+    Type: Functorial::APIGW::Route
+    Properties:
+      Path: "{id}"
+      Api: ItemsApi
+
+  GetItem:
+    Type: Functorial::APIGW::Method
+    Properties:
+      HttpMethod: "GET"
+      Auth: "NONE"
+      Route: ItemRoute
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemHandlerFn.Arn}/invocations"
+
+  DeleteItem:
+    Type: Functorial::APIGW::Method
+    Properties:
+      HttpMethod: "DELETE"
+      Auth: "IAM"
+      Route: ItemRoute
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemHandlerFn.Arn}/invocations"

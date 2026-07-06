@@ -6,6 +6,7 @@
 import { Category, Functor, Instance, inspectKan } from '../../core/src';
 import { ParsedSchema, ObjectDef, PropertyDef } from './schema-parser';
 import { AbstractTemplate, AbstractResource } from './template-parser';
+import { applyMacros } from './macros';
 
 export interface CfnTemplate {
   AWSTemplateFormatVersion: string;
@@ -21,14 +22,18 @@ export interface CfnResource {
  * Compile an abstract template into a CloudFormation template.
  */
 export function compile(schema: ParsedSchema, template: AbstractTemplate): CfnTemplate {
+  const expanded = schema.macros
+    ? applyMacros(schema.macros, template)
+    : template;
+
   const D = new Category(schema.simplified.categorySpec);
   const C = new Category(schema.original.categorySpec);
   const G = new Functor(D, C, schema.functor);
 
   // Build the instance I: D → Set from the abstract resources.
   // Each abstract resource populates the objects in D.
-  const sets = buildSets(schema, template);
-  const functions = buildFunctions(schema, template, sets);
+  const sets = buildSets(schema, expanded);
+  const functions = buildFunctions(schema, expanded, sets);
 
   const I = new Instance(D, sets, functions);
   const result = inspectKan(G, I);
@@ -103,7 +108,9 @@ function buildSets(
       throw new Error(`Unknown resource type "${resource.type}" in template`);
     }
 
-    sets[objName].push(resource.logicalId);
+    if (!sets[objName].includes(resource.logicalId)) {
+      sets[objName].push(resource.logicalId);
+    }
 
     // Populate value objects from properties
     const objDef = schema.simplified.objects.get(objName)!;

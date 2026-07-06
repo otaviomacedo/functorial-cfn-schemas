@@ -3,3 +3,8 @@
 /.idea/
 /compiler/.idea/
 /core/.idea/
+/*.aux
+/*.log
+/*.out
+/*.pdf
+/*.toc

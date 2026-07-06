@@ -1,4 +1,5 @@
 import { CategorySpec, GeneratingMorphism, PathEquation, Category, Functor } from '../../core/src';
+import { MacroSet, parseMacros } from './macros';
 
 export interface ObjectDef {
   name: string;
@@ -27,6 +28,7 @@ export interface ParsedSchema {
     onObjects: Record<string, string>;
     onMorphisms: Record<string, string[]>;
   };
+  macros?: MacroSet;
   /**
    * Intermediate layers in a multi-hop chain (outermost first).
    * Empty for single-hop schemas.
@@ -131,6 +133,9 @@ export function parseSchema(raw: any): ParsedSchema {
     }
   }
 
+  const resourceTypeNames = [...resourceType.keys()];
+  const macros = parseMacros(simp.Macros, resourceTypeNames);
+
   return {
     original: {
       categorySpec: {
@@ -153,6 +158,7 @@ export function parseSchema(raw: any): ParsedSchema {
       onObjects: functorObjects,
       onMorphisms: functorMorphisms,
     },
+    macros,
   };
 }
 

@@ -1,37 +1,42 @@
 /**
- * High-level entry point: takes a template file path, resolves its schema
+ * High-level entry point: takes an instance file path, resolves its schema
  * reference, and compiles to a CloudFormation template.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as yaml from 'yaml';
 import { parseSchema, parseSchemaWithImport, ParsedSchema } from './schema-parser';
 import { parseTemplate } from './template-parser';
 import { compile, CfnTemplate } from './compiler';
+import { parseSchemaFile, lowerSchemaFile } from './schema-dsl';
+import { parseInstanceFile, lowerInstanceFile } from './instance-dsl';
 
 /**
- * Recursively resolve a schema file, following Imports to compose functor chains.
+ * Recursively resolve a `.schema` file, following `import` to compose functor
+ * chains. Each file is parsed and lowered to the raw shape the categorical
+ * parsers consume.
  */
 function resolveSchema(schemaFilePath: string): ParsedSchema {
-  const schemaRaw = yaml.parse(fs.readFileSync(schemaFilePath, 'utf8'));
+  const file = parseSchemaFile(fs.readFileSync(schemaFilePath, 'utf8'));
+  const { raw, hasImport, importPath } = lowerSchemaFile(file);
   const schemaDir = path.dirname(schemaFilePath);
 
-  if (schemaRaw.Imports) {
-    const importPath = path.resolve(schemaDir, schemaRaw.Imports);
-    const parentSchema = resolveSchema(importPath);
-    return parseSchemaWithImport(schemaRaw, parentSchema);
+  if (hasImport && importPath) {
+    const parentPath = path.resolve(schemaDir, importPath);
+    const parentSchema = resolveSchema(parentPath);
+    return parseSchemaWithImport(raw, parentSchema);
   }
 
-  return parseSchema(schemaRaw);
+  return parseSchema(raw);
 }
 
-export function compileFile(templatePath: string): CfnTemplate {
-  const templateDir = path.dirname(path.resolve(templatePath));
-  const templateRaw = yaml.parse(fs.readFileSync(templatePath, 'utf8'));
+export function compileFile(instancePath: string): CfnTemplate {
+  const instanceDir = path.dirname(path.resolve(instancePath));
+  const file = parseInstanceFile(fs.readFileSync(instancePath, 'utf8'));
+  const templateRaw = lowerInstanceFile(file);
   const template = parseTemplate(templateRaw);
 
-  const schemaFilePath = path.resolve(templateDir, template.schemaPath);
+  const schemaFilePath = path.resolve(instanceDir, template.schemaPath);
   const schema = resolveSchema(schemaFilePath);
 
   return compile(schema, template);

@@ -1,0 +1,211 @@
+// Schema: VPC
+//
+// Two categories and a functor between them:
+//   Ec2  — the CloudFormation-level category (real AWS::EC2::* resources)
+//   Vpc  — the user-facing category (a handful of friendly objects)
+//   map Vpc -> Ec2  — the functor the compiler extends along
+//
+// Property attributes inside an `obj` block:
+//   Value:   T   — a terminal value of type T (rendered as the property value)
+//   Source:  X   — a reference morphism to object X (rendered as Ref/GetAtt)
+//   Default: lit — a literal constant rendered as-is
+//   SameAs:  P   — shares property P's underlying reference (rendered differently)
+//   Via:     Ref | GetAtt.Attr — how a reference renders
+
+// ============================================================================
+// Ec2: the CloudFormation-level category (C)
+// ============================================================================
+
+schema Ec2 {
+    obj AWS::EC2::VPC {
+        CidrBlock          { Value: String }
+        EnableDnsHostnames { Value: Boolean }
+        EnableDnsSupport   { Value: Boolean }
+        InstanceTenancy    { Value: String }
+    } alias VPC
+
+    obj AWS::EC2::Subnet {
+        VpcId               { Source: VPC }
+        CidrBlock           { Value: String }
+        AvailabilityZone    { Value: String }
+        MapPublicIpOnLaunch { Default: "true" }
+    } alias PublicSubnet
+
+    obj AWS::EC2::Subnet {
+        VpcId            { Source: VPC }
+        CidrBlock        { Value: String }
+        AvailabilityZone { Value: String }
+    } alias PrivateSubnet
+
+    obj AWS::EC2::Subnet {
+        VpcId            { Source: VPC }
+        CidrBlock        { Value: String }
+        AvailabilityZone { Value: String }
+    } alias IsolatedSubnet
+
+    obj AWS::EC2::RouteTable {
+        VpcId { Source: VPC }
+        structure {
+            Subnet { Source: PublicSubnet }
+        }
+    } alias PublicRT
+
+    obj AWS::EC2::RouteTable {
+        VpcId { Source: VPC }
+        structure {
+            Subnet { Source: PrivateSubnet }
+        }
+    } alias PrivateRT
+
+    obj AWS::EC2::RouteTable {
+        VpcId { Source: VPC }
+        structure {
+            Subnet { Source: IsolatedSubnet }
+        }
+    } alias IsolatedRT
+
+    obj AWS::EC2::SubnetRouteTableAssociation {
+        SubnetId     { Source: PublicSubnet }
+        RouteTableId { Source: PublicRT }
+    } alias PublicRTAssoc
+
+    obj AWS::EC2::SubnetRouteTableAssociation {
+        SubnetId     { Source: PrivateSubnet }
+        RouteTableId { Source: PrivateRT }
+    } alias PrivateRTAssoc
+
+    obj AWS::EC2::SubnetRouteTableAssociation {
+        SubnetId     { Source: IsolatedSubnet }
+        RouteTableId { Source: IsolatedRT }
+    } alias IsolatedRTAssoc
+
+    obj AWS::EC2::InternetGateway {
+        structure {
+            Toggle { Source: IgwToggle }
+        }
+    } alias IGW
+
+    obj AWS::EC2::VPCGatewayAttachment {
+        VpcId             { Source: VPC }
+        InternetGatewayId { Source: IGW }
+    } alias IGWAttach
+
+    obj AWS::EC2::Route {
+        RouteTableId         { Source: PublicRT }
+        GatewayId            { Source: IGW }
+        DestinationCidrBlock { Default: "0.0.0.0/0" }
+    } alias PublicRoute
+
+    obj AWS::EC2::EIP {
+        Domain { Default: "vpc" }
+    } alias EIP
+
+    obj AWS::EC2::NatGateway {
+        SubnetId     { Source: PublicSubnet }
+        AllocationId { Source: EIP }
+    } alias NatGateway
+
+    obj AWS::EC2::Route {
+        RouteTableId         { Source: PrivateRT }
+        NatGatewayId         { Source: NatGateway }
+        DestinationCidrBlock { Default: "0.0.0.0/0" }
+    } alias PrivateRoute
+
+    obj AWS::EC2::VPNGateway {
+        Type          { Default: "ipsec.1" }
+        AmazonSideAsn { Value: Number }
+        structure {
+            Toggle { Source: VpnToggle }
+        }
+    } alias VPNGateway
+
+    obj AWS::EC2::VPCGatewayAttachment {
+        VpcId        { Source: VPC }
+        VpnGatewayId { Source: VPNGateway }
+    } alias VPNGWAttach
+
+    obj AWS::EC2::VPNGatewayRoutePropagation {
+        VpnGatewayId { Source: VPNGateway }
+    } alias VPNRouteProp
+
+    obj AWS::EC2::VPCEndpoint {
+        VpcId           { Source: VPC }
+        ServiceName     { Value: String }
+        VpcEndpointType { Default: "Gateway" }
+    } alias GatewayEndpoint
+
+    toggle IgwToggle
+    toggle VpnToggle
+
+    // The RT association pairs the RT with the subnet it structurally belongs to.
+    PublicRTAssoc.RouteTableId * PublicRT.Subnet = PublicRTAssoc.SubnetId
+    PrivateRTAssoc.RouteTableId * PrivateRT.Subnet = PrivateRTAssoc.SubnetId
+    IsolatedRTAssoc.RouteTableId * IsolatedRT.Subnet = IsolatedRTAssoc.SubnetId
+}
+
+// ============================================================================
+// Vpc: the user-facing category (D)
+// ============================================================================
+
+schema Vpc {
+    obj Functorial::VPC::Network {
+        CidrBlock    { Value: String }
+        DnsHostnames { Value: Boolean }
+        DnsSupport   { Value: Boolean }
+        Tenancy      { Value: String }
+    } alias Network
+
+    obj Functorial::VPC::PublicTier {
+        CidrBlock        { Value: String }
+        AvailabilityZone { Value: String }
+        Network          { Source: Network }
+    } alias PublicTier
+
+    obj Functorial::VPC::PrivateTier {
+        CidrBlock        { Value: String }
+        AvailabilityZone { Value: String }
+        Network          { Source: Network }
+    } alias PrivateTier
+
+    obj Functorial::VPC::IsolatedTier {
+        CidrBlock        { Value: String }
+        AvailabilityZone { Value: String }
+        Network          { Source: Network }
+    } alias IsolatedTier
+
+    obj Functorial::VPC::NatGateway {
+        Subnet { Source: PublicTier }
+    } alias NatSlot
+
+    obj Functorial::VPC::GatewayEndpoint {
+        ServiceName { Value: String }
+        Network     { Source: Network }
+    } alias Endpoint
+
+    toggle IgwToggle
+    toggle VpnToggle
+}
+
+// ============================================================================
+// The functor G: Vpc -> Ec2
+// ============================================================================
+
+map Vpc -> Ec2 {
+    Network      -> VPC
+    PublicTier   -> PublicSubnet
+    PrivateTier  -> PrivateSubnet
+    IsolatedTier -> IsolatedSubnet
+    NatSlot      -> NatGateway
+    Endpoint     -> GatewayEndpoint
+
+    // Only the mappings that aren't inferable by same-name need listing.
+    Network.DnsHostnames -> VPC.EnableDnsHostnames
+    Network.DnsSupport   -> VPC.EnableDnsSupport
+    Network.Tenancy      -> VPC.InstanceTenancy
+
+    PublicTier.Network   -> PublicSubnet.VpcId
+    PrivateTier.Network  -> PrivateSubnet.VpcId
+    IsolatedTier.Network -> IsolatedSubnet.VpcId
+    NatSlot.Subnet       -> NatGateway.SubnetId
+    Endpoint.Network     -> GatewayEndpoint.VpcId
+}

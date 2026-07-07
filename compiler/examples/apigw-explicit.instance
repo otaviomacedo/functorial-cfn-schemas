@@ -1,0 +1,58 @@
+// Same API as apigw-items-api.instance, but written without macros.
+// Demonstrates the explicit form and nested routes.
+
+instance of "./apigw.schema"
+
+res ItemsApi: Functorial::APIGW::Api = {
+    Name: "items-service"
+    Description: "Items CRUD API"
+}
+
+res Prod: Functorial::APIGW::Stage = {
+    StageName: "prod"
+    Api: ItemsApi
+}
+
+// Top-level: /items
+res ItemsRoute: Functorial::APIGW::Route = {
+    Path: "items"
+    Api: ItemsApi
+}
+
+// Nested: /items/{id}
+res ItemRoute: Functorial::APIGW::SubRoute = {
+    Path: "{id}"
+    Parent: ItemsRoute
+}
+
+res GetItems: Functorial::APIGW::Method = {
+    HttpMethod: "GET"
+    Auth: "NONE"
+    Route: ItemsRoute
+    IntegrationType: "AWS_PROXY"
+    IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemsHandlerFn.Arn}/invocations"
+}
+
+res CreateItem: Functorial::APIGW::Method = {
+    HttpMethod: "POST"
+    Auth: "IAM"
+    Route: ItemsRoute
+    IntegrationType: "AWS_PROXY"
+    IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemsHandlerFn.Arn}/invocations"
+}
+
+res GetItem: Functorial::APIGW::Method = {
+    HttpMethod: "GET"
+    Auth: "NONE"
+    Route: ItemsRoute
+    IntegrationType: "AWS_PROXY"
+    IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemHandlerFn.Arn}/invocations"
+}
+
+res DeleteItem: Functorial::APIGW::Method = {
+    HttpMethod: "DELETE"
+    Auth: "IAM"
+    Route: ItemsRoute
+    IntegrationType: "AWS_PROXY"
+    IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemHandlerFn.Arn}/invocations"
+}

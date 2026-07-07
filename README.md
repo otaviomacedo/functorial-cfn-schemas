@@ -18,8 +18,8 @@ CloudFormation templates are full of "wiring" — resources that reference each 
 
 This framework separates structure from computation:
 
-1. An **abstraction author** defines a simplified schema (category D), the full CloudFormation pattern (category C), and a functor G: D → C mapping between them.
-2. A **user** writes a template against the simplified schema.
+1. An **abstraction author** defines a simplified schema (category D), the full CloudFormation pattern (category C), and a functor G: D → C mapping between them — all in a `.schema` file.
+2. A **user** writes an **instance** of the simplified schema in a `.instance` file.
 3. The **compiler** computes the right Kan extension to mechanically generate the full CloudFormation template with all references wired correctly.
 
 The Kan extension guarantees: if the functor is valid and the user's input is a valid instance of D, then the output is a valid instance of C with all references consistent. Wiring bugs become impossible by construction.
@@ -27,7 +27,7 @@ The Kan extension guarantees: if the functor is valid and the user's input is a 
 ## Architecture
 
 ```
-User template (instance of D)
+User instance (.instance, an instance of D)
     │
     │  [macro expansion]        ← syntactic sugar, runs first
     │
@@ -58,17 +58,24 @@ core/               Category theory engine
     typed.ts        Type-safe API for pattern definition
     cdk-bridge.ts   CDK construct rendering bridge
 
-compiler/           YAML schema compiler
+compiler/           DSL schema compiler
   src/
-    schema-parser.ts   Parse schema YAML (with import/composition support)
-    template-parser.ts Parse user templates
+    lexer.ts           Shared tokenizer for the .schema / .instance DSLs
+    dsl-ast.ts         AST node types for both DSLs
+    schema-dsl.ts      Parse .schema source and lower to the raw schema shape
+                       (functor auto-inference lives here)
+    instance-dsl.ts    Parse .instance source and lower to the raw template shape
+    schema-parser.ts   Build categories/functor from the raw shape (import/composition)
+    template-parser.ts Parse the raw template shape
     macros.ts          Macro preprocessor (array expansion, toggle expansion)
-    compiler.ts        End-to-end: schema + template → CloudFormation
+    compiler.ts        End-to-end: schema + instance → CloudFormation
     compile-file.ts    File-based compilation with import resolution
 
-examples/           Example schemas and templates
-    vpc.schema.yaml
-    apigw.schema.yaml
+examples/           Example schemas and instances
+    vpc.schema
+    vpc-minimal.instance
+    apigw.schema
+    apigw-items-api.instance
     ...
 ```
 
@@ -99,12 +106,74 @@ Schemas can import other schemas. A child schema defines D' with a functor H: D'
 
 ### Macros as syntactic sugar
 
-Macros rewrite user templates before the Kan extension runs. They are purely syntactic (cannot inspect values or make structural decisions based on content). Two kinds:
+Macros rewrite user instances before the Kan extension runs. They are purely syntactic (cannot inspect values or make structural decisions based on content). Two kinds:
 
-- **Array expansion**: `Methods: [GET, POST]` on a Route becomes two separate Method resources
+- **Array expansion**: `Methods: [ ... ]` on a Route becomes separate Method resources
 - **Toggle expansion**: `InternetAccess: true` becomes a toggle resource
 
 Macros cannot break functoriality — their output is validated against D normally.
+
+## The DSL
+
+Schemas and instances are written in a small C-style language (`//` and `/* */`
+comments, braces, no significant whitespace).
+
+A **schema** file (`.schema`) declares two categories and the functor between them:
+
+```
+schema Ec2 {                       // C: the CloudFormation category
+    obj AWS::EC2::VPC {
+        CidrBlock          { Value: String }   // a terminal value
+        EnableDnsHostnames { Value: Boolean }
+    } alias VPC
+
+    obj AWS::EC2::Subnet {
+        VpcId     { Source: VPC }              // a reference morphism
+        CidrBlock { Value: String }
+        MapPublicIpOnLaunch { Default: "true" }
+    } alias PublicSubnet
+
+    toggle IgwToggle
+}
+
+schema Vpc {                       // D: the user-facing category
+    obj Functorial::VPC::Network {
+        CidrBlock { Value: String }
+    } alias Network
+    // ...
+}
+
+map Vpc -> Ec2 {                   // the functor G: D → C
+    Network -> VPC
+    // object/value mappings and same-name morphisms are inferred;
+    // only list a morphism when D and C names differ or a path is composite:
+    PublicTier.Network -> PublicSubnet.VpcId
+    Method.IntegrationType -> PublicMethod.Integration * Integration.Type
+}
+```
+
+Property attributes inside an `obj`: `Value:` (a terminal value type), `Source:`
+(a reference to another object), `Default:` (a literal constant), `SameAs:`
+(reuse another property's reference, rendered differently), and `Via:` (`Ref` or
+`GetAtt.Attr`). A `structure { }` block declares references not rendered as CFN
+properties. `value X: T` declares a standalone value object; the `*` operator
+composes morphisms in equations and functor paths.
+
+An **instance** file (`.instance`) names a schema and declares resources/toggles:
+
+```
+instance of "./vpc.schema"
+
+toggle IgwToggle = false
+
+res MyVpc: Functorial::VPC::Network = {
+    CidrBlock: "10.0.0.0/16"
+    DnsHostnames: true
+}
+```
+
+Property values are strings, numbers, booleans, arrays, nested objects, and
+CloudFormation intrinsics (`!Ref X`, `!GetAtt A.B`, `!Sub "..."`).
 
 ## Design patterns
 
@@ -121,34 +190,27 @@ These patterns recur across schemas:
 ## Example: API Gateway
 
 User writes:
-```yaml
-Schema: ./apigw.schema.yaml
+```
+instance of "./apigw.schema"
 
-Resources:
-  ItemsApi:
-    Type: Functorial::APIGW::Api
-    Properties:
-      Name: "items-service"
-      Description: "Items API"
+res ItemsApi: Functorial::APIGW::Api = {
+    Name: "items-service"
+    Description: "Items API"
+}
 
-  Prod:
-    Type: Functorial::APIGW::Stage
-    Properties:
-      StageName: "prod"
-      Api: ItemsApi
+res Prod: Functorial::APIGW::Stage = {
+    StageName: "prod"
+    Api: ItemsApi
+}
 
-  ItemsRoute:
-    Type: Functorial::APIGW::Route
-    Properties:
-      Path: "items"
-      Api: ItemsApi
-      Methods:
-        - HttpMethod: "GET"
-          Auth: "NONE"
-          IntegrationType: "AWS_PROXY"
-        - HttpMethod: "POST"
-          Auth: "NONE"
-          IntegrationType: "AWS_PROXY"
+res ItemsRoute: Functorial::APIGW::Route = {
+    Path: "items"
+    Api: ItemsApi
+    Methods: [
+        { HttpMethod: "GET",  Auth: "NONE", IntegrationType: "AWS_PROXY" },
+        { HttpMethod: "POST", Auth: "NONE", IntegrationType: "AWS_PROXY" }
+    ]
+}
 ```
 
 The compiler generates: RestApi, Resource, 2 Methods, 2 Integrations, Deployment, Stage — all correctly wired. Path equations guarantee every resource references the same RestApiId.

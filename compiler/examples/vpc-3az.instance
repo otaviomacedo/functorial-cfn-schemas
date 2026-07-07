@@ -1,0 +1,103 @@
+// A 3-AZ VPC with public, private, and isolated tiers,
+// 3 NAT gateways, internet gateway, VPN gateway, and S3/DynamoDB endpoints.
+//
+// Compare to CDK:
+//   new ec2.Vpc(this, 'VPC', {
+//     cidr: '10.0.0.0/16',
+//     maxAzs: 3,
+//     natGateways: 3,
+//     vpnGateway: true,
+//     subnetConfiguration: [
+//       { name: 'Public', subnetType: SubnetType.PUBLIC, cidrMask: 24 },
+//       { name: 'Private', subnetType: SubnetType.PRIVATE_WITH_EGRESS, cidrMask: 24 },
+//       { name: 'Isolated', subnetType: SubnetType.PRIVATE_ISOLATED, cidrMask: 28 },
+//     ],
+//   })
+
+instance of "./vpc.schema"
+
+toggle IgwToggle = true
+toggle VpnToggle = true
+
+res MyVpc: Functorial::VPC::Network = {
+    CidrBlock: "10.0.0.0/16"
+    DnsHostnames: true
+    DnsSupport: true
+    Tenancy: "default"
+}
+
+res PublicA: Functorial::VPC::PublicTier = {
+    CidrBlock: "10.0.0.0/24"
+    AvailabilityZone: "us-east-1a"
+    Network: MyVpc
+}
+
+res PublicB: Functorial::VPC::PublicTier = {
+    CidrBlock: "10.0.1.0/24"
+    AvailabilityZone: "us-east-1b"
+    Network: MyVpc
+}
+
+res PublicC: Functorial::VPC::PublicTier = {
+    CidrBlock: "10.0.2.0/24"
+    AvailabilityZone: "us-east-1c"
+    Network: MyVpc
+}
+
+res PrivateA: Functorial::VPC::PrivateTier = {
+    CidrBlock: "10.0.10.0/24"
+    AvailabilityZone: "us-east-1a"
+    Network: MyVpc
+}
+
+res PrivateB: Functorial::VPC::PrivateTier = {
+    CidrBlock: "10.0.11.0/24"
+    AvailabilityZone: "us-east-1b"
+    Network: MyVpc
+}
+
+res PrivateC: Functorial::VPC::PrivateTier = {
+    CidrBlock: "10.0.12.0/24"
+    AvailabilityZone: "us-east-1c"
+    Network: MyVpc
+}
+
+res IsolatedA: Functorial::VPC::IsolatedTier = {
+    CidrBlock: "10.0.20.0/28"
+    AvailabilityZone: "us-east-1a"
+    Network: MyVpc
+}
+
+res IsolatedB: Functorial::VPC::IsolatedTier = {
+    CidrBlock: "10.0.20.16/28"
+    AvailabilityZone: "us-east-1b"
+    Network: MyVpc
+}
+
+res IsolatedC: Functorial::VPC::IsolatedTier = {
+    CidrBlock: "10.0.20.32/28"
+    AvailabilityZone: "us-east-1c"
+    Network: MyVpc
+}
+
+res NatA: Functorial::VPC::NatGateway = {
+    Subnet: PublicA
+}
+
+res NatB: Functorial::VPC::NatGateway = {
+    Subnet: PublicB
+}
+
+res NatC: Functorial::VPC::NatGateway = {
+    Subnet: PublicC
+}
+
+res S3Endpoint: Functorial::VPC::GatewayEndpoint = {
+    ServiceName: "com.amazonaws.us-east-1.s3"
+    Network: MyVpc
+}
+
+res DynamoEndpoint: Functorial::VPC::GatewayEndpoint = {
+    ServiceName: "com.amazonaws.us-east-1.dynamodb"
+    Network: MyVpc
+}

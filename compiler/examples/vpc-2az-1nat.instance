@@ -1,0 +1,49 @@
+// 2-AZ VPC with public and private subnets, single NAT gateway.
+// Cost-optimized: cross-AZ traffic instead of per-AZ NAT.
+//
+// Compare to CDK:
+//   new ec2.Vpc(this, 'VPC', {
+//     cidr: '10.0.0.0/16',
+//     maxAzs: 2,
+//     natGateways: 1,
+//   })
+
+instance of "./vpc.schema"
+
+toggle IgwToggle = true
+toggle VpnToggle = false
+
+res MyVpc: Functorial::VPC::Network = {
+    CidrBlock: "10.0.0.0/16"
+    DnsHostnames: true
+    DnsSupport: true
+    Tenancy: "default"
+}
+
+res PublicA: Functorial::VPC::PublicTier = {
+    CidrBlock: "10.0.0.0/24"
+    AvailabilityZone: "us-east-1a"
+    Network: MyVpc
+}
+
+res PublicB: Functorial::VPC::PublicTier = {
+    CidrBlock: "10.0.1.0/24"
+    AvailabilityZone: "us-east-1b"
+    Network: MyVpc
+}
+
+res PrivateA: Functorial::VPC::PrivateTier = {
+    CidrBlock: "10.0.10.0/24"
+    AvailabilityZone: "us-east-1a"
+    Network: MyVpc
+}
+
+res PrivateB: Functorial::VPC::PrivateTier = {
+    CidrBlock: "10.0.11.0/24"
+    AvailabilityZone: "us-east-1b"
+    Network: MyVpc
+}
+
+res NatA: Functorial::VPC::NatGateway = {
+    Subnet: PublicA
+}

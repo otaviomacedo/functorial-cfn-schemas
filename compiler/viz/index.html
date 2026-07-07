@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Functorial schema visualizer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>◆</text></svg>" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <header id="topbar">
+    <span class="brand">Functorial schema visualizer</span>
+    <label>example
+      <select id="example-picker"></select>
+    </label>
+    <span id="status" class="status"></span>
+    <span class="spacer"></span>
+    <span id="meta" class="meta"></span>
+  </header>
+
+  <main id="split">
+    <section id="editor-panel">
+      <textarea id="editor" spellcheck="false" autocomplete="off"></textarea>
+      <div id="error-bar" class="hidden"></div>
+    </section>
+
+    <section id="graph-panel">
+      <div id="cy"></div>
+      <aside id="legend"></aside>
+      <aside id="detail" class="hidden"></aside>
+    </section>
+  </main>
+
+  <!-- Vendored browser builds, in dependency order (see viz-server VENDOR). -->
+  <script src="/vendor/layout-base.js"></script>
+  <script src="/vendor/cose-base.js"></script>
+  <script src="/vendor/cytoscape.js"></script>
+  <script src="/vendor/cytoscape-fcose.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

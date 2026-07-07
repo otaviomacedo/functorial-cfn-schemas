@@ -73,6 +73,9 @@ compiler/           DSL schema compiler
     compile-file.ts    File-based compilation with import resolution
     analyze-schema.ts  Bridge from a .schema file to a fiber analysis
     fiber-cli.ts       CLI: print each C-object's fiber and cardinality class
+    graph-model.ts     Turn an analysis into a UI graph (D/C nodes, fibers, edges)
+    viz-server.ts      Zero-dep dev server for the visualizer (POST /analyze)
+  viz/                 Two-panel web app (editor + interactive Cytoscape graph)
 
 examples/           Example schemas and instances
     vpc.schema
@@ -248,6 +251,25 @@ morphisms — so all path equations hold) and confirms each predicted cardinalit
 `k^(#drivers)` against the real engine. This is also what the analyzer's tests
 assert, so the classification is guaranteed consistent with actual behavior.
 
+### Visualizer
+
+A local two-panel web app renders the same analysis interactively: edit a schema
+on the left, see `D` and `C` as graphs on the right, with `C` clustered into
+color-coded fibers and every node badged with its cardinality class. Cross-fiber
+references and the `G: d → G(d)` mapping are drawn as distinct edges; hover a
+node to highlight its fiber, click one for its drivers and constraining
+equations.
+
+```bash
+cd compiler
+npm run viz            # build + serve on http://localhost:4173
+npm run viz -- 8080    # custom port
+```
+
+The frontend (`compiler/viz/`) is plain HTML/CSS/JS using Cytoscape (served from
+`node_modules`, no build step); the server (`compiler/src/viz-server.ts`)
+re-analyzes the edited source on each keystroke via a `POST /analyze` endpoint.
+
 ## Running
 
 ```bash
@@ -260,6 +282,9 @@ cd compiler && npx jest
 
 # Analyze a schema's fiber structure
 cd compiler && npm run fibers -- examples/apigw.schema --verify
+
+# Explore schemas interactively in the browser
+cd compiler && npm run viz
 ```
 
 ## Limitations

@@ -6,7 +6,8 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "jest"
+    "test": "jest",
+    "fibers": "tsc && node dist/compiler/src/fiber-cli.js"
   },
   "dependencies": {
     "@mermaid-js/mermaid-cli": "^11.16.0"

@@ -1,5 +1,7 @@
 /core/node_modules/
 /compiler/node_modules/
+/compiler/dist/
+/core/dist/
 /.idea/
 /compiler/.idea/
 /core/.idea/

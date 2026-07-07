@@ -6,3 +6,4 @@ export { MacroSet, MacroRule, MacroDeclaration, MacroExpandArray, MacroExpandTog
 export { parseSchemaFile, lowerSchemaFile } from './schema-dsl';
 export { parseInstanceFile, lowerInstanceFile } from './instance-dsl';
 export { tokenize, TokenStream, LexError, ParseError } from './lexer';
+export { analyzeSchemaFile, analyzeSchemaSource, SchemaAnalysis } from './analyze-schema';

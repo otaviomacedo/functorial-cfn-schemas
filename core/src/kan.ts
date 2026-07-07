@@ -6,7 +6,7 @@ import { Instance } from './instance';
  * An entry in the comma category (c ↓ G).
  * Represents a morphism f: c → G(d) in C, indexed by d in D.
  */
-interface CommaEntry {
+export interface CommaEntry {
   d: string;
   path: Path;
   pathKey: string;
@@ -16,7 +16,7 @@ interface CommaEntry {
  * A constraint between two comma entries, induced by a morphism h: d₁ → d₂ in D
  * such that G(h) ∘ f₁ = f₂.
  */
-interface Constraint {
+export interface Constraint {
   from: CommaEntry;
   to: CommaEntry;
   morphismInD: string;
@@ -66,8 +66,11 @@ export function rightKan(G: Functor, I: Instance): Instance {
 
 /**
  * Build the comma category (c ↓ G): all morphisms from c to objects in G's image.
+ *
+ * Exported because it is the instance-independent core of the Kan extension —
+ * `fiber-analysis.ts` reuses it to classify each C-object statically.
  */
-function commaCategory(
+export function commaCategory(
   c: string,
   G: Functor,
   C: Category,

@@ -54,6 +54,7 @@ core/               Category theory engine
     functor.ts      Functors between categories, with composition
     instance.ts     Instances (functors to Set)
     kan.ts          Right Kan extension computation
+    fiber-analysis.ts  Static (instance-free) classification of each C-object
     pattern.ts      Pattern abstraction (ties C, D, G together)
     typed.ts        Type-safe API for pattern definition
     cdk-bridge.ts   CDK construct rendering bridge
@@ -70,6 +71,8 @@ compiler/           DSL schema compiler
     macros.ts          Macro preprocessor (array expansion, toggle expansion)
     compiler.ts        End-to-end: schema + instance → CloudFormation
     compile-file.ts    File-based compilation with import resolution
+    analyze-schema.ts  Bridge from a .schema file to a fiber analysis
+    fiber-cli.ts       CLI: print each C-object's fiber and cardinality class
 
 examples/           Example schemas and instances
     vpc.schema
@@ -215,6 +218,36 @@ res ItemsRoute: Functorial::APIGW::Route = {
 
 The compiler generates: RestApi, Resource, 2 Methods, 2 Integrations, Deployment, Stage — all correctly wired. Path equations guarantee every resource references the same RestApiId.
 
+## Understanding a schema: fiber analysis
+
+Writing a schema means designing `D` and `G` so that the Kan extension produces
+the `C` you want. The hard part is that `G` only tells you directly about the
+objects in its image — for everything else (route tables, associations,
+deployments) you have to compute the Kan extension in your head to see how many
+copies you'll get and what drives them.
+
+The **fiber analyzer** (`core/src/fiber-analysis.ts`) does this statically. The
+value of the Kan extension at an object `c` is a limit over the comma category
+`(c ↓ G)`, and that comma category depends only on `C`, `D`, `G` — never on the
+user's instance. So every `C`-object can be classified up front:
+
+- **singleton** — empty comma category ⇒ one auto-created element (e.g. a `Deployment`)
+- **1:1 correlated** — one driver ⇒ one copy per element of that `D`-object (e.g. `PublicSubnet` ↔ `PublicTier`)
+- **product** — several drivers ⇒ one copy per combination, possibly collapsed by a path equation (e.g. `PublicRT` is `|Network| × |PublicTier|`, *not* a bare copy of `PublicTier`)
+
+Run it on a schema:
+
+```bash
+cd compiler
+npm run fibers -- examples/vpc.schema           # print fibers + cardinalities
+npm run fibers -- examples/apigw.schema --verify # also cross-check vs the Kan engine
+```
+
+`--verify` builds coherent probe instances (every object size `k`, identity
+morphisms — so all path equations hold) and confirms each predicted cardinality
+`k^(#drivers)` against the real engine. This is also what the analyzer's tests
+assert, so the classification is guaranteed consistent with actual behavior.
+
 ## Running
 
 ```bash
@@ -224,6 +257,9 @@ cd core && npm install && cd ../compiler && npm install
 # Test
 cd core && npx jest
 cd compiler && npx jest
+
+# Analyze a schema's fiber structure
+cd compiler && npm run fibers -- examples/apigw.schema --verify
 ```
 
 ## Limitations

@@ -198,6 +198,13 @@ schema Api {
 
     toggle DeployToggle
 
+    // An authorized method's route and its authorizer must belong to the same
+    // API. C enforces this (AuthorizedMethod.RestApiId is reachable via both the
+    // Resource and the Authorizer, and they're equated), so D must state it too
+    // — otherwise G is not faithful: the two distinct references collapse in the
+    // template and the user's data is silently merged.
+    AuthMethod.Route * Route.Api = AuthMethod.Authorizer * Authorizer.Api
+
     // Users can write Methods inline on a Route.
     macro Functorial::APIGW::Route.Methods {
         expandsTo: "Functorial::APIGW::Method"

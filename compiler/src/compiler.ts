@@ -3,7 +3,14 @@
  * computes the right Kan extension, and renders a CloudFormation template.
  */
 
-import { Category, Functor, Instance, inspectKan } from '../../core/src';
+import {
+  Category,
+  Functor,
+  Instance,
+  inspectKan,
+  checkFullyFaithful,
+  formatFullFaithfulReport,
+} from '../../core/src';
 import { ParsedSchema, ObjectDef, PropertyDef } from './schema-parser';
 import { AbstractTemplate, AbstractResource } from './template-parser';
 import { applyMacros } from './macros';
@@ -18,10 +25,26 @@ export interface CfnResource {
   Properties?: Record<string, any>;
 }
 
+export interface CompileOptions {
+  /**
+   * Where full/faithfulness diagnostics go. Defaults to `console.warn`. Pass a
+   * collector to capture them, or `() => {}` to silence. These are warnings, not
+   * errors: a non-fully-faithful functor still compiles, but the round trip
+   * Δ_G Π_G(I) → I may lose or duplicate user data (see `faithfulness.ts`).
+   */
+  onDiagnostic?: (message: string) => void;
+  /** Skip the full/faithfulness check entirely. */
+  skipFaithfulnessCheck?: boolean;
+}
+
 /**
  * Compile an abstract template into a CloudFormation template.
  */
-export function compile(schema: ParsedSchema, template: AbstractTemplate): CfnTemplate {
+export function compile(
+  schema: ParsedSchema,
+  template: AbstractTemplate,
+  options: CompileOptions = {},
+): CfnTemplate {
   const expanded = schema.macros
     ? applyMacros(schema.macros, template)
     : template;
@@ -29,6 +52,10 @@ export function compile(schema: ParsedSchema, template: AbstractTemplate): CfnTe
   const D = new Category(schema.simplified.categorySpec);
   const C = new Category(schema.original.categorySpec);
   const G = new Functor(D, C, schema.functor);
+
+  if (!options.skipFaithfulnessCheck) {
+    reportFaithfulness(G, options.onDiagnostic);
+  }
 
   // Build the instance I: D → Set from the abstract resources.
   // Each abstract resource populates the objects in D.
@@ -72,6 +99,25 @@ export function compile(schema: ParsedSchema, template: AbstractTemplate): CfnTe
     AWSTemplateFormatVersion: '2010-09-09',
     Resources: cfnResources,
   };
+}
+
+/**
+ * Run the static full/faithfulness check on the functor and route each finding
+ * to the diagnostic sink (default `console.warn`). Warnings only — a leaky
+ * functor still compiles; the point is that it no longer does so silently.
+ */
+function reportFaithfulness(G: Functor, onDiagnostic?: (message: string) => void): void {
+  const sink = onDiagnostic ?? (msg => console.warn(msg));
+  const report = checkFullyFaithful(G);
+  if (report.full && report.faithful) return;
+
+  sink(
+    `warning: functor G: D → C is not fully faithful (checked to path depth ${report.boundedBy}). ` +
+      `The generated template may lose or duplicate instance data with no further error:`,
+  );
+  for (const line of formatFullFaithfulReport(report)) {
+    sink('  ' + line);
+  }
 }
 
 /**

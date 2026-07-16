@@ -1,4 +1,11 @@
-import { parseSchema, parseTemplate, compile } from '../src';
+import { parseSchema, parseTemplate, compile as compileRaw } from '../src';
+
+// This suite exercises output shape; the API Gateway functor is intentionally
+// not fully faithful (Route/Authorizer diamond, Stage→DeployToggle), so silence
+// those diagnostics here — they have dedicated coverage in
+// faithfulness-diagnostics.test.ts.
+const compile: typeof compileRaw = (schema, template, options) =>
+  compileRaw(schema, template, { onDiagnostic: () => {}, ...options });
 
 // Schema design notes:
 //

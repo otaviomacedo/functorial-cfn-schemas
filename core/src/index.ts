@@ -9,6 +9,14 @@ export {
   ObjectClassKind,
   verifyCardinality,
 } from './fiber-analysis';
+export {
+  checkFullyFaithful,
+  formatFullFaithfulReport,
+  suggestedEquation,
+  FullFaithfulReport,
+  FaithfulnessViolation,
+  FullnessViolation,
+} from './faithfulness';
 export { Pattern, PatternSpec, PatternInstance, Skeleton, RenderContext, RenderCallback } from './pattern';
 export { defineSchema, definePattern, TypedPattern, TypedPatternInstance, TypedSkeleton, TypedRenderContext, TypedRenderCallbacks, ElementTypes } from './typed';
 export { renderToCdk, CdkRenderContext, CdkRenderCallback, CdkBridgeConfig } from './cdk-bridge';

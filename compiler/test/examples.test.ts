@@ -1,7 +1,10 @@
 import * as path from 'path';
 import { compileFile } from '../src';
 
-const example = (f: string) => compileFile(path.resolve(__dirname, '..', 'examples', f));
+// Silence full/faithfulness diagnostics here; they have dedicated coverage in
+// core/test/faithfulness.test.ts. These end-to-end tests only assert output shape.
+const example = (f: string) =>
+  compileFile(path.resolve(__dirname, '..', 'examples', f), { onDiagnostic: () => {} });
 
 describe('VPC examples (DSL, end-to-end)', () => {
   it('minimal isolated VPC produces the isolated resource set', () => {

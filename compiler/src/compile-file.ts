@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseSchema, parseSchemaWithImport, ParsedSchema } from './schema-parser';
 import { parseTemplate } from './template-parser';
-import { compile, CfnTemplate } from './compiler';
+import { compile, CfnTemplate, CompileOptions } from './compiler';
 import { parseSchemaFile, lowerSchemaFile } from './schema-dsl';
 import { parseInstanceFile, lowerInstanceFile } from './instance-dsl';
 
@@ -30,7 +30,7 @@ function resolveSchema(schemaFilePath: string): ParsedSchema {
   return parseSchema(raw);
 }
 
-export function compileFile(instancePath: string): CfnTemplate {
+export function compileFile(instancePath: string, options?: CompileOptions): CfnTemplate {
   const instanceDir = path.dirname(path.resolve(instancePath));
   const file = parseInstanceFile(fs.readFileSync(instancePath, 'utf8'));
   const templateRaw = lowerInstanceFile(file);
@@ -39,5 +39,5 @@ export function compileFile(instancePath: string): CfnTemplate {
   const schemaFilePath = path.resolve(instanceDir, template.schemaPath);
   const schema = resolveSchema(schemaFilePath);
 
-  return compile(schema, template);
+  return compile(schema, template, options);
 }

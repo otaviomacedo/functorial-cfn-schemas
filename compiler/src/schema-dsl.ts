@@ -252,9 +252,29 @@ function parseMapBlock(ts: TokenStream): MapBlock {
 
   const objectMappings: Array<{ from: string; to: string }> = [];
   const morphismMappings: Array<{ from: string; to: string[] }> = [];
+  const expectedFullness: Array<{ path: string[]; reason?: string }> = [];
 
   while (!ts.isPunct('}')) {
     if (ts.atEof()) throw ts.error("Unterminated 'map' block");
+
+    // `expected fullness <C-path> [because "reason"]` — acknowledge an intended
+    // fullness gap so the checker treats it as expected rather than a warning.
+    if (ts.isKeyword('expected')) {
+      ts.next();
+      ts.expectKeyword('fullness');
+      const path = parseMorphismPath(ts);
+      let reason: string | undefined;
+      if (ts.isKeyword('because')) {
+        ts.next();
+        const t = ts.peek();
+        if (t.type !== 'string') throw ts.error('Expected a quoted reason after "because"');
+        ts.next();
+        reason = t.value;
+      }
+      expectedFullness.push({ path, reason });
+      continue;
+    }
+
     // LHS is either `Ident` (object) or `Ident.Ident` (morphism).
     const lhsObj = ts.expectIdent().value;
     if (ts.isPunct('.')) {
@@ -270,7 +290,7 @@ function parseMapBlock(ts: TokenStream): MapBlock {
     }
   }
   ts.expectPunct('}');
-  return { kind: 'map', from, to, objectMappings, morphismMappings };
+  return { kind: 'map', from, to, objectMappings, morphismMappings, expectedFullness };
 }
 
 /**
@@ -372,6 +392,7 @@ export function lowerSchemaFile(
       raw: {
         SimplifiedSchema: { ...simplified, Functor: functor },
         Imports: file.imports[0],
+        ExpectedFullness: map.expectedFullness,
       },
       hasImport: true,
       importPath: file.imports[0],
@@ -387,6 +408,7 @@ export function lowerSchemaFile(
     raw: {
       OriginalSchema: original,
       SimplifiedSchema: { ...simplified, Functor: functor },
+      ExpectedFullness: map.expectedFullness,
     },
     hasImport: false,
   };

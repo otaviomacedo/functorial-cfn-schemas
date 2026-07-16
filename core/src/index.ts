@@ -1,4 +1,11 @@
 export { Category, CategorySpec, GeneratingMorphism, PathEquation, Path } from './category';
+export {
+  completeRewriteSystem,
+  normalize,
+  Rule,
+  CompletionResult,
+  CompletionOptions,
+} from './knuth-bendix';
 export { Functor, FunctorSpec } from './functor';
 export { Instance } from './instance';
 export { rightKan, inspectKan, KanResult, commaCategory, CommaEntry, Constraint } from './kan';

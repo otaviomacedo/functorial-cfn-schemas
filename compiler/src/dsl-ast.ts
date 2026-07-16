@@ -78,6 +78,13 @@ export interface MapBlock {
   to: string; // codomain schema name (C)
   objectMappings: Array<{ from: string; to: string }>;
   morphismMappings: Array<{ from: string; to: string[] }>; // to = path segments
+  /**
+   * Fullness gaps the author has acknowledged as intended (e.g. an auto-created
+   * resource cascade). Each is a `*`-separated C-path; the faithfulness checker
+   * reclassifies a matching fullness violation from a warning to an expected,
+   * informational note. New, undeclared gaps still warn.
+   */
+  expectedFullness: Array<{ path: string[]; reason?: string }>;
 }
 
 // ============================================================================

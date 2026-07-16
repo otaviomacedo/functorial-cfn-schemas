@@ -5,6 +5,8 @@
  * Path equations declare that two paths are equal in the category.
  */
 
+import { completeRewriteSystem, normalize, Rule } from './knuth-bendix';
+
 export interface GeneratingMorphism {
   name: string;
   source: string;
@@ -31,6 +33,13 @@ export class Category {
   private readonly outgoing: Map<string, GeneratingMorphism[]>;
   private readonly equations: PathEquation[];
   private pathCache: Map<string, Path[]> | null = null;
+
+  /**
+   * Lazily-computed Knuth–Bendix completion of `equations`. When it converges
+   * the rewrite system is canonical, so `pathsEqual` decides equality by
+   * comparing normal forms instead of running an unbounded congruence search.
+   */
+  private rewriteSystem: { rules: Rule[]; converged: boolean } | null = null;
 
   constructor(readonly spec: CategorySpec) {
     this.objects = new Set(spec.objects);
@@ -162,9 +171,45 @@ export class Category {
   }
 
   /**
+   * The Knuth–Bendix completion of this category's equations, computed once and
+   * cached. `converged` is true iff the resulting rewrite system is canonical —
+   * only then does normal-form comparison *decide* path equality; otherwise
+   * `pathsEqual` falls back to the bounded congruence search below.
+   */
+  private completion(): { rules: Rule[]; converged: boolean } {
+    if (this.rewriteSystem === null) {
+      this.rewriteSystem = completeRewriteSystem(this.equations);
+    }
+    return this.rewriteSystem;
+  }
+
+  /**
+   * Whether Knuth–Bendix completion produced a canonical rewrite system for
+   * this category. When true, `pathsEqual` is a genuine decision procedure;
+   * when false it is a sound-but-incomplete bounded search (the word problem
+   * for this presentation did not converge within the completion bounds).
+   */
+  get hasDecidableWordProblem(): boolean {
+    return this.equations.length === 0 || this.completion().converged;
+  }
+
+  /**
+   * Reduce a path to its Knuth–Bendix normal form. Only a canonical
+   * representative when `hasDecidableWordProblem` is true.
+   */
+  normalForm(path: Path): Path {
+    if (this.equations.length === 0) return path;
+    return normalize(path, this.completion().rules);
+  }
+
+  /**
    * Check if two paths are equal under the path equations.
-   * Uses congruence closure: two paths are equal if one can be rewritten
-   * into the other by replacing subpaths using the equations.
+   *
+   * When Knuth–Bendix completion converged, equality is decided by comparing
+   * normal forms — sound *and* complete. Otherwise we fall back to a bounded
+   * bidirectional congruence-closure search, which is sound but may miss an
+   * equality that lies beyond the explored closure (the word problem is
+   * undecidable in general — see `knuth-bendix.ts`).
    */
   pathsEqual(p1: Path, p2: Path): boolean {
     if (p1.length === 0 && p2.length === 0) return true;
@@ -173,6 +218,14 @@ export class Category {
     const key2 = p2.join(',');
     if (key1 === key2) return true;
 
+    if (this.equations.length === 0) return false;
+
+    const { rules, converged } = this.completion();
+    if (converged) {
+      return arraysEqual(normalize(p1, rules), normalize(p2, rules));
+    }
+
+    // Completion did not converge: fall back to the original semi-decision.
     const reachable = this.rewriteClosure(p1);
     return reachable.has(key2);
   }
@@ -227,4 +280,8 @@ export class Category {
     }
     return results;
   }
+}
+
+function arraysEqual(a: Path, b: Path): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
 }

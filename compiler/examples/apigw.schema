@@ -243,4 +243,13 @@ map Api -> ApiGw {
 
     Authorizer.Api -> Authorizer.RestApiId
     Stage.Api      -> Stage.RestApiId
+
+    // Intended fullness gap: in C a Stage reaches the DeployToggle through its
+    // Deployment (Stage.DeploymentId * Deployment.Toggle), but D's Stage has no
+    // such reference — the Deployment is an auto-created singleton the Kan
+    // extension mints, and the toggle cascade is deliberate, not user data. We
+    // declare it so the checker reports it as expected rather than warning that
+    // instances might be duplicated/filtered.
+    expected fullness Stage.DeploymentId * Deployment.Toggle
+        because "Deployment is auto-created; the toggle cascade is intended, not user-authored"
 }

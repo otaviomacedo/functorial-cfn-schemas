@@ -35,6 +35,40 @@ describe('schema DSL parsing', () => {
     expect(ec2.toggles).toEqual(['IgwToggle']);
   });
 
+  it('parses an "expected fullness" declaration in the map block', () => {
+    const src = `
+      schema C {
+        obj AWS::Thing { Ref { Source: Other } } alias Thing
+        obj AWS::Other { Tog { Source: Toggle } } alias Other
+        toggle Toggle
+      }
+      schema D {
+        obj T::Root {} alias Root
+      }
+      map D -> C {
+        Root -> Thing
+        expected fullness Thing.Ref * Other.Tog
+          because "auto-created cascade"
+      }
+    `;
+    const file = parseSchemaFile(src);
+    expect(file.maps[0].expectedFullness).toEqual([
+      { path: ['Thing.Ref', 'Other.Tog'], reason: 'auto-created cascade' },
+    ]);
+
+    // Reason is optional.
+    const noReason = parseSchemaFile(src.replace(/\s+because "[^"]*"/, ''));
+    expect(noReason.maps[0].expectedFullness).toEqual([
+      { path: ['Thing.Ref', 'Other.Tog'], reason: undefined },
+    ]);
+
+    // It survives lowering onto the raw schema.
+    const { raw } = lowerSchemaFile(file);
+    expect(raw.ExpectedFullness).toEqual([
+      { path: ['Thing.Ref', 'Other.Tog'], reason: 'auto-created cascade' },
+    ]);
+  });
+
   it('parses comments and structure blocks', () => {
     const src = `
       // line comment

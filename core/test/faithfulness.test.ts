@@ -114,5 +114,46 @@ describe('checkFullyFaithful', () => {
       expect(report.faithful).toBe(true);
       expect(report.full).toBe(true);
     });
+
+    it('marks the result as decidable — these free categories complete trivially', () => {
+      const report = checkFullyFaithful(G);
+      expect(report.decidable).toBe(true);
+    });
+  });
+
+  describe('a functor between categories with commuting equations', () => {
+    // D has a commuting square; C has the corresponding one. Knuth–Bendix
+    // converges on both, so the report is a decision, not a bounded guess.
+    const D = new Category({
+      objects: ['p', 'q', 'r', 's'],
+      morphisms: [
+        { name: 'a', source: 'p', target: 'q' },
+        { name: 'b', source: 'q', target: 's' },
+        { name: 'c', source: 'p', target: 'r' },
+        { name: 'e', source: 'r', target: 's' },
+      ],
+      equations: [{ lhs: ['a', 'b'], rhs: ['c', 'e'] }],
+    });
+    const C = new Category({
+      objects: ['P', 'Q', 'R', 'S'],
+      morphisms: [
+        { name: 'A', source: 'P', target: 'Q' },
+        { name: 'B', source: 'Q', target: 'S' },
+        { name: 'K', source: 'P', target: 'R' },
+        { name: 'E', source: 'R', target: 'S' },
+      ],
+      equations: [{ lhs: ['A', 'B'], rhs: ['K', 'E'] }],
+    });
+    const G = new Functor(D, C, {
+      onObjects: { p: 'P', q: 'Q', r: 'R', s: 'S' },
+      onMorphisms: { a: ['A'], b: ['B'], c: ['K'], e: ['E'] },
+    });
+
+    it('is fully faithful and reports a decidable word problem', () => {
+      const report = checkFullyFaithful(G);
+      expect(report.faithful).toBe(true);
+      expect(report.full).toBe(true);
+      expect(report.decidable).toBe(true);
+    });
   });
 });

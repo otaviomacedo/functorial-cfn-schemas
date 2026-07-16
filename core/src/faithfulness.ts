@@ -59,10 +59,20 @@ export interface FullFaithfulReport {
   fullnessViolations: FullnessViolation[];
   /**
    * The depth cap used when enumerating paths. Because `allPaths` truncates at
-   * this depth and `pathsEqual` only semi-decides equality, a clean report is
-   * "no violation up to this bound", not a proof of full faithfulness.
+   * this depth, a clean report is "no violation up to this bound", not a proof
+   * of full faithfulness — regardless of `decidable`.
    */
   boundedBy: number;
+  /**
+   * True iff path equality in *both* D and C is backed by a converged
+   * Knuth–Bendix system — i.e. every equality *test* the check performs is a
+   * decision, not a bounded semi-decision. When false, an equality that the
+   * checker reports as *distinct* (fueling a faithfulness/fullness violation)
+   * might actually hold beyond the explored congruence closure, so a reported
+   * violation is a strong signal but not a proof. (`boundedBy` still limits
+   * which paths are enumerated in the first place, independently of this.)
+   */
+  decidable: boolean;
 }
 
 /**
@@ -89,6 +99,7 @@ export function checkFullyFaithful(G: Functor, maxDepth: number = 10): FullFaith
     faithfulnessViolations,
     fullnessViolations,
     boundedBy: maxDepth,
+    decidable: C.hasDecidableWordProblem && D.hasDecidableWordProblem,
   };
 }
 
@@ -197,6 +208,15 @@ const showPath = (p: Path): string => (p.length === 0 ? 'id' : p.join(' * '));
  */
 export function formatFullFaithfulReport(report: FullFaithfulReport): string[] {
   const lines: string[] = [];
+
+  if (!report.decidable && (report.faithfulnessViolations.length > 0 || report.fullnessViolations.length > 0)) {
+    lines.push(
+      `NOTE: Knuth–Bendix completion did not converge for these categories, so ` +
+        `path equality is a bounded semi-decision here, not a decision procedure. ` +
+        `The findings below are sound signals but not proofs — an apparent ` +
+        `distinctness could collapse beyond the explored congruence closure.`,
+    );
+  }
 
   for (const v of report.faithfulnessViolations) {
     const paths = v.dPaths.map(showPath).join('  =  ');

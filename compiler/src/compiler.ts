@@ -54,7 +54,7 @@ export function compile(
   const G = new Functor(D, C, schema.functor);
 
   if (!options.skipFaithfulnessCheck) {
-    reportFaithfulness(G, options.onDiagnostic);
+    reportFaithfulness(G, C, schema.expectedFullness ?? [], options.onDiagnostic);
   }
 
   // Build the instance I: D → Set from the abstract resources.
@@ -105,19 +105,80 @@ export function compile(
  * Run the static full/faithfulness check on the functor and route each finding
  * to the diagnostic sink (default `console.warn`). Warnings only — a leaky
  * functor still compiles; the point is that it no longer does so silently.
+ *
+ * Fullness gaps the schema declared as intended (`expectedFullness`, from the
+ * `map` block's `expected fullness` lines) are pulled out and reported as
+ * expected, informational notes rather than warnings. A gap the author has
+ * acknowledged — e.g. the auto-created Deployment/Stage toggle cascade — is a
+ * design decision, not a leak; any *new*, undeclared gap still warns.
  */
-function reportFaithfulness(G: Functor, onDiagnostic?: (message: string) => void): void {
+function reportFaithfulness(
+  G: Functor,
+  C: Category,
+  expectedFullness: Array<{ path: string[]; reason?: string }>,
+  onDiagnostic?: (message: string) => void,
+): void {
   const sink = onDiagnostic ?? (msg => console.warn(msg));
   const report = checkFullyFaithful(G);
-  if (report.full && report.faithful) return;
 
+  // Split fullness violations into ones the author declared as intended and the
+  // rest. A declaration matches a violation when its C-path equals the
+  // violation's uncovered C-path (mod C-equations).
+  const expected: typeof report.fullnessViolations = [];
+  const unexpected: typeof report.fullnessViolations = [];
+  const matched = new Array(expectedFullness.length).fill(false);
+  for (const v of report.fullnessViolations) {
+    const idx = expectedFullness.findIndex(e => cPathsEqual(C, e.path, v.cPath));
+    if (idx >= 0) {
+      matched[idx] = true;
+      expected.push(v);
+    } else {
+      unexpected.push(v);
+    }
+  }
+
+  // Declarations that matched nothing are stale — the gap they name is gone, so
+  // the annotation should be removed. Surface that rather than staying silent.
+  expectedFullness.forEach((e, i) => {
+    if (!matched[i]) {
+      sink(
+        `warning: declared "expected fullness ${e.path.join(' * ')}" no longer ` +
+          `matches any fullness gap — G may have changed; remove the stale annotation.`,
+      );
+    }
+  });
+
+  for (const v of expected) {
+    const decl = expectedFullness.find(e => cPathsEqual(C, e.path, v.cPath));
+    const because = decl?.reason ? ` (${decl.reason})` : '';
+    sink(
+      `note: expected fullness gap [${showCPath(v.cPath)}] (${v.cSource} → ${v.cTarget})` +
+        `${because} — declared intended; the Kan extension auto-creates this cascade.`,
+    );
+  }
+
+  const leaky = !report.faithful || unexpected.length > 0;
+  if (!leaky) return;
+
+  const basis = report.decidable
+    ? `decided via Knuth–Bendix normal forms, paths enumerated to depth ${report.boundedBy}`
+    : `bounded semi-decision — Knuth–Bendix did not converge; paths enumerated to depth ${report.boundedBy}`;
   sink(
-    `warning: functor G: D → C is not fully faithful (checked to path depth ${report.boundedBy}). ` +
+    `warning: functor G: D → C is not fully faithful (${basis}). ` +
       `The generated template may lose or duplicate instance data with no further error:`,
   );
-  for (const line of formatFullFaithfulReport(report)) {
+  const filtered = { ...report, fullnessViolations: unexpected };
+  for (const line of formatFullFaithfulReport(filtered)) {
     sink('  ' + line);
   }
+}
+
+const showCPath = (p: string[]): string => (p.length === 0 ? 'id' : p.join(' * '));
+
+/** Path equality mod C-equations, treating the empty (identity) path uniformly. */
+function cPathsEqual(C: Category, p: string[], q: string[]): boolean {
+  if (p.length === 0 || q.length === 0) return p.length === q.length;
+  return C.pathsEqual(p, q);
 }
 
 /**

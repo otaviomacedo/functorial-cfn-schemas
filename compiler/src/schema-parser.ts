@@ -30,6 +30,13 @@ export interface ParsedSchema {
   };
   macros?: MacroSet;
   /**
+   * Fullness gaps the author declared as intended (via `expected fullness` in
+   * the `map` block). Each is a C-path; the faithfulness check downgrades a
+   * matching fullness violation from a warning to an expected note. See
+   * `compiler.ts`.
+   */
+  expectedFullness?: Array<{ path: string[]; reason?: string }>;
+  /**
    * Intermediate layers in a multi-hop chain (outermost first).
    * Empty for single-hop schemas.
    */
@@ -96,6 +103,7 @@ export function parseSchemaWithImport(childRaw: any, parentSchema: ParsedSchema)
       onObjects: composed.spec.onObjects,
       onMorphisms: composed.spec.onMorphisms,
     },
+    expectedFullness: parseExpectedFullness(childRaw.ExpectedFullness),
     layers: [
       { ...parentSchema, layers: undefined },
       ...(parentSchema.layers ?? []),
@@ -159,7 +167,23 @@ export function parseSchema(raw: any): ParsedSchema {
       onMorphisms: functorMorphisms,
     },
     macros,
+    expectedFullness: parseExpectedFullness(raw.ExpectedFullness),
   };
+}
+
+/**
+ * Normalize declared fullness gaps from the raw schema. Each entry's `path` may
+ * arrive as a `*`- or `.`-separated string or an already-split array; we keep
+ * the array form used by the faithfulness report.
+ */
+function parseExpectedFullness(
+  raw: Array<{ path: string[] | string; reason?: string }> | undefined,
+): Array<{ path: string[]; reason?: string }> {
+  if (!raw) return [];
+  return raw.map(e => ({
+    path: Array.isArray(e.path) ? e.path : parsePath(e.path),
+    reason: e.reason,
+  }));
 }
 
 function parseObjects(raw: Record<string, any>): Map<string, ObjectDef & { type?: string }> {

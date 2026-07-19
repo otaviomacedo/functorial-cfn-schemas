@@ -5,17 +5,17 @@ describe('schema DSL parsing', () => {
   it('parses schemas, values, toggles, equations, and a map', () => {
     const src = `
       schema Ec2 {
-        obj AWS::EC2::VPC {
+        type AWS::EC2::VPC {
           CidrBlock { Value: String }
         } alias VPC
-        obj AWS::EC2::Subnet {
+        type AWS::EC2::Subnet {
           VpcId     { Source: VPC }
           CidrBlock { Value: String }
         } alias Subnet
         toggle IgwToggle
       }
       schema Net {
-        obj Functorial::Net {
+        type Functorial::Net {
           Cidr { Value: String }
         } alias Net
         toggle IgwToggle
@@ -38,12 +38,12 @@ describe('schema DSL parsing', () => {
   it('parses an "expected fullness" declaration in the map block', () => {
     const src = `
       schema C {
-        obj AWS::Thing { Ref { Source: Other } } alias Thing
-        obj AWS::Other { Tog { Source: Toggle } } alias Other
+        type AWS::Thing { Ref { Source: Other } } alias Thing
+        type AWS::Other { Tog { Source: Toggle } } alias Other
         toggle Toggle
       }
       schema D {
-        obj T::Root {} alias Root
+        type T::Root {} alias Root
       }
       map D -> C {
         Root -> Thing
@@ -74,18 +74,18 @@ describe('schema DSL parsing', () => {
       // line comment
       schema C {
         /* block comment */
-        obj AWS::Thing {
+        type AWS::Thing {
           Ref { Source: Other }
           structure {
             Toggle { Source: Tog }
           }
         } alias Thing
-        obj AWS::Other {} alias Other
+        type AWS::Other {} alias Other
         toggle Tog
       }
       schema D {
-        obj T::D { Link { Source: Other } } alias Root
-        obj T::Other {} alias Other
+        type T::D { Link { Source: Other } } alias Root
+        type T::Other {} alias Other
         toggle Tog
       }
       map D -> C {
@@ -99,16 +99,26 @@ describe('schema DSL parsing', () => {
     expect(thing.structure).toHaveLength(1);
     expect(thing.structure[0]).toMatchObject({ name: 'Toggle', source: 'Tog' });
   });
+
+  it('uses `type` (not the old `obj`) as the object-declaration keyword', () => {
+    const ok = `schema C { type AWS::Thing {} alias Thing } schema D { type T::D {} alias D } map D -> C { D -> Thing }`;
+    expect(() => parseSchemaFile(ok)).not.toThrow();
+
+    // The former `obj` keyword is no longer a declaration; it parses as a bare
+    // identifier and fails (an equation path expects `Ident.Ident`).
+    const old = ok.replace('type AWS::Thing', 'obj AWS::Thing');
+    expect(() => parseSchemaFile(old)).toThrow();
+  });
 });
 
 describe('schema DSL lowering → raw shape', () => {
   it('lowers Value properties to value objects + Source references', () => {
     const src = `
       schema C {
-        obj AWS::EC2::VPC { CidrBlock { Value: String } } alias VPC
+        type AWS::EC2::VPC { CidrBlock { Value: String } } alias VPC
       }
       schema D {
-        obj T::Net { CidrBlock { Value: String } } alias Net
+        type T::Net { CidrBlock { Value: String } } alias Net
       }
       map D -> C { Net -> VPC }
     `;
@@ -134,16 +144,16 @@ describe('schema DSL lowering → raw shape', () => {
   it('lowers SameAs to a shared morphism reference with distinct Via', () => {
     const src = `
       schema C {
-        obj AWS::ApiGateway::Resource {
+        type AWS::ApiGateway::Resource {
           RestApiId { Source: Api, Via: Ref }
           ParentId  { SameAs: RestApiId, Via: GetAtt.RootResourceId }
           PathPart  { Value: String }
         } alias RootResource
-        obj AWS::ApiGateway::RestApi {} alias Api
+        type AWS::ApiGateway::RestApi {} alias Api
       }
       schema D {
-        obj T::Route { Path { Value: String } Api { Source: Api } } alias Route
-        obj T::Api {} alias Api
+        type T::Route { Path { Value: String } Api { Source: Api } } alias Route
+        type T::Api {} alias Api
       }
       map D -> C {
         Route -> RootResource
@@ -165,14 +175,14 @@ describe('schema DSL lowering → raw shape', () => {
     // A.b.c reads as field access but denotes the composite A.b * b→target.c.
     const dot = `
       schema C {
-        obj AWS::Method { ResourceId { Source: Resource } } alias Method
-        obj AWS::Resource { RestApiId { Source: Api } } alias Resource
-        obj AWS::Api {} alias Api
+        type AWS::Method { ResourceId { Source: Resource } } alias Method
+        type AWS::Resource { RestApiId { Source: Api } } alias Resource
+        type AWS::Api {} alias Api
       }
       schema D {
-        obj T::M { R { Source: R } A { Source: A } } alias M
-        obj T::R { A { Source: A } } alias R
-        obj T::A {} alias A
+        type T::M { R { Source: R } A { Source: A } } alias M
+        type T::R { A { Source: A } } alias R
+        type T::A {} alias A
         M.A = M.R.A
       }
       map D -> C {
@@ -196,9 +206,9 @@ describe('schema DSL lowering → raw shape', () => {
 
   it('rejects a dot chain whose interior morphism is unknown', () => {
     const src = `
-      schema C { obj AWS::A { B { Value: String } } alias A }
+      schema C { type AWS::A { B { Value: String } } alias A }
       schema D {
-        obj T::A { B { Value: String } } alias A
+        type T::A { B { Value: String } } alias A
         A.Nope.Foo = A.B
       }
       map D -> C { A -> A }
@@ -209,13 +219,13 @@ describe('schema DSL lowering → raw shape', () => {
   it('lowers composite * paths in the map to " . " paths', () => {
     const src = `
       schema C {
-        obj AWS::Method {
+        type AWS::Method {
           structure { Integration { Source: Integration } }
         } alias Method
-        obj AWS::Integration { Type { Value: String } } alias Integration
+        type AWS::Integration { Type { Value: String } } alias Integration
       }
       schema D {
-        obj T::M { IntegrationType { Value: String } } alias M
+        type T::M { IntegrationType { Value: String } } alias M
       }
       map D -> C {
         M -> Method
@@ -233,15 +243,15 @@ describe('schema DSL lowering → raw shape', () => {
     // CIDRs, and the subnet references the network.
     const src = `
       schema C {
-        obj AWS::EC2::VPC { CidrBlock { Value: String } } alias VPC
-        obj AWS::EC2::Subnet {
+        type AWS::EC2::VPC { CidrBlock { Value: String } } alias VPC
+        type AWS::EC2::Subnet {
           VpcId     { Source: VPC }
           CidrBlock { Value: String }
         } alias Subnet
       }
       schema D {
-        obj T::Net  { CidrBlock { Value: String } } alias Net
-        obj T::Tier {
+        type T::Net  { CidrBlock { Value: String } } alias Net
+        type T::Tier {
           CidrBlock { Value: String }
           Net       { Source: Net }
         } alias Tier

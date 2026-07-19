@@ -5,7 +5,7 @@
 //   Vpc  — the user-facing category (a handful of friendly objects)
 //   map Vpc -> Ec2  — the functor the compiler extends along
 //
-// Property attributes inside an `obj` block:
+// Property attributes inside a `type` block:
 //   Value:   T   — a terminal value of type T (rendered as the property value)
 //   Source:  X   — a reference morphism to object X (rendered as Ref/GetAtt)
 //   Default: lit — a literal constant rendered as-is
@@ -17,101 +17,101 @@
 // ============================================================================
 
 schema Ec2 {
-    obj AWS::EC2::VPC {
+    type AWS::EC2::VPC {
         CidrBlock          { Value: String }
         EnableDnsHostnames { Value: Boolean }
         EnableDnsSupport   { Value: Boolean }
         InstanceTenancy    { Value: String }
     } alias VPC
 
-    obj AWS::EC2::Subnet {
+    type AWS::EC2::Subnet {
         VpcId               { Source: VPC }
         CidrBlock           { Value: String }
         AvailabilityZone    { Value: String }
         MapPublicIpOnLaunch { Default: "true" }
     } alias PublicSubnet
 
-    obj AWS::EC2::Subnet {
+    type AWS::EC2::Subnet {
         VpcId            { Source: VPC }
         CidrBlock        { Value: String }
         AvailabilityZone { Value: String }
     } alias PrivateSubnet
 
-    obj AWS::EC2::Subnet {
+    type AWS::EC2::Subnet {
         VpcId            { Source: VPC }
         CidrBlock        { Value: String }
         AvailabilityZone { Value: String }
     } alias IsolatedSubnet
 
-    obj AWS::EC2::RouteTable {
+    type AWS::EC2::RouteTable {
         VpcId { Source: VPC }
         structure {
             Subnet { Source: PublicSubnet }
         }
     } alias PublicRT
 
-    obj AWS::EC2::RouteTable {
+    type AWS::EC2::RouteTable {
         VpcId { Source: VPC }
         structure {
             Subnet { Source: PrivateSubnet }
         }
     } alias PrivateRT
 
-    obj AWS::EC2::RouteTable {
+    type AWS::EC2::RouteTable {
         VpcId { Source: VPC }
         structure {
             Subnet { Source: IsolatedSubnet }
         }
     } alias IsolatedRT
 
-    obj AWS::EC2::SubnetRouteTableAssociation {
+    type AWS::EC2::SubnetRouteTableAssociation {
         SubnetId     { Source: PublicSubnet }
         RouteTableId { Source: PublicRT }
     } alias PublicRTAssoc
 
-    obj AWS::EC2::SubnetRouteTableAssociation {
+    type AWS::EC2::SubnetRouteTableAssociation {
         SubnetId     { Source: PrivateSubnet }
         RouteTableId { Source: PrivateRT }
     } alias PrivateRTAssoc
 
-    obj AWS::EC2::SubnetRouteTableAssociation {
+    type AWS::EC2::SubnetRouteTableAssociation {
         SubnetId     { Source: IsolatedSubnet }
         RouteTableId { Source: IsolatedRT }
     } alias IsolatedRTAssoc
 
-    obj AWS::EC2::InternetGateway {
+    type AWS::EC2::InternetGateway {
         structure {
             Toggle { Source: IgwToggle }
         }
     } alias IGW
 
-    obj AWS::EC2::VPCGatewayAttachment {
+    type AWS::EC2::VPCGatewayAttachment {
         VpcId             { Source: VPC }
         InternetGatewayId { Source: IGW }
     } alias IGWAttach
 
-    obj AWS::EC2::Route {
+    type AWS::EC2::Route {
         RouteTableId         { Source: PublicRT }
         GatewayId            { Source: IGW }
         DestinationCidrBlock { Default: "0.0.0.0/0" }
     } alias PublicRoute
 
-    obj AWS::EC2::EIP {
+    type AWS::EC2::EIP {
         Domain { Default: "vpc" }
     } alias EIP
 
-    obj AWS::EC2::NatGateway {
+    type AWS::EC2::NatGateway {
         SubnetId     { Source: PublicSubnet }
         AllocationId { Source: EIP }
     } alias NatGateway
 
-    obj AWS::EC2::Route {
+    type AWS::EC2::Route {
         RouteTableId         { Source: PrivateRT }
         NatGatewayId         { Source: NatGateway }
         DestinationCidrBlock { Default: "0.0.0.0/0" }
     } alias PrivateRoute
 
-    obj AWS::EC2::VPNGateway {
+    type AWS::EC2::VPNGateway {
         Type          { Default: "ipsec.1" }
         AmazonSideAsn { Value: Number }
         structure {
@@ -119,16 +119,16 @@ schema Ec2 {
         }
     } alias VPNGateway
 
-    obj AWS::EC2::VPCGatewayAttachment {
+    type AWS::EC2::VPCGatewayAttachment {
         VpcId        { Source: VPC }
         VpnGatewayId { Source: VPNGateway }
     } alias VPNGWAttach
 
-    obj AWS::EC2::VPNGatewayRoutePropagation {
+    type AWS::EC2::VPNGatewayRoutePropagation {
         VpnGatewayId { Source: VPNGateway }
     } alias VPNRouteProp
 
-    obj AWS::EC2::VPCEndpoint {
+    type AWS::EC2::VPCEndpoint {
         VpcId           { Source: VPC }
         ServiceName     { Value: String }
         VpcEndpointType { Default: "Gateway" }
@@ -148,36 +148,36 @@ schema Ec2 {
 // ============================================================================
 
 schema Vpc {
-    obj Functorial::VPC::Network {
+    type Functorial::VPC::Network {
         CidrBlock    { Value: String }
         DnsHostnames { Value: Boolean }
         DnsSupport   { Value: Boolean }
         Tenancy      { Value: String }
     } alias Network
 
-    obj Functorial::VPC::PublicTier {
+    type Functorial::VPC::PublicTier {
         CidrBlock        { Value: String }
         AvailabilityZone { Value: String }
         Network          { Source: Network }
     } alias PublicTier
 
-    obj Functorial::VPC::PrivateTier {
+    type Functorial::VPC::PrivateTier {
         CidrBlock        { Value: String }
         AvailabilityZone { Value: String }
         Network          { Source: Network }
     } alias PrivateTier
 
-    obj Functorial::VPC::IsolatedTier {
+    type Functorial::VPC::IsolatedTier {
         CidrBlock        { Value: String }
         AvailabilityZone { Value: String }
         Network          { Source: Network }
     } alias IsolatedTier
 
-    obj Functorial::VPC::NatGateway {
+    type Functorial::VPC::NatGateway {
         Subnet { Source: PublicTier }
     } alias NatSlot
 
-    obj Functorial::VPC::GatewayEndpoint {
+    type Functorial::VPC::GatewayEndpoint {
         ServiceName { Value: String }
         Network     { Source: Network }
     } alias Endpoint

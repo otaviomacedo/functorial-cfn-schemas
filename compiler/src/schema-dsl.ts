@@ -71,7 +71,7 @@ function parseSchemaBlock(ts: TokenStream): SchemaBlock {
   while (!ts.isPunct('}')) {
     if (ts.atEof()) throw ts.error("Unterminated 'schema' block");
 
-    if (ts.isKeyword('obj')) {
+    if (ts.isKeyword('type')) {
       objects.push(parseObj(ts));
     } else if (ts.isKeyword('value')) {
       values.push(parseValue(ts));
@@ -101,7 +101,7 @@ function parseTypeName(ts: TokenStream): string {
 }
 
 function parseObj(ts: TokenStream): ObjDecl {
-  ts.expectKeyword('obj');
+  ts.expectKeyword('type');
   const type = parseTypeName(ts);
   ts.expectPunct('{');
 
@@ -109,7 +109,7 @@ function parseObj(ts: TokenStream): ObjDecl {
   const structure: PropDecl[] = [];
 
   while (!ts.isPunct('}')) {
-    if (ts.atEof()) throw ts.error("Unterminated 'obj' block");
+    if (ts.atEof()) throw ts.error("Unterminated 'type' block");
     if (ts.isKeyword('structure')) {
       ts.next();
       ts.expectPunct('{');

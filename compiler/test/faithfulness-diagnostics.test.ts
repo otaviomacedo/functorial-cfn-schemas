@@ -53,10 +53,10 @@ describe('full/faithfulness diagnostics during compilation', () => {
     // flagged as stale rather than silently ignored.
     const src = `
       schema C {
-        obj AWS::EC2::VPC { CidrBlock { Value: String } } alias VPC
+        type AWS::EC2::VPC { CidrBlock { Value: String } } alias VPC
       }
       schema D {
-        obj T::Net { CidrBlock { Value: String } } alias Net
+        type T::Net { CidrBlock { Value: String } } alias Net
       }
       map D -> C {
         Net -> VPC

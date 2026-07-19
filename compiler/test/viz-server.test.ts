@@ -31,8 +31,8 @@ describe('viz server (smoke)', () => {
 
   it('analyzes posted schema source into a graph model', async () => {
     const source = `
-      schema C { obj AWS::EC2::VPC { CidrBlock { Value: String } } alias VPC }
-      schema D { obj T::Net { CidrBlock { Value: String } } alias Net }
+      schema C { type AWS::EC2::VPC { CidrBlock { Value: String } } alias VPC }
+      schema D { type T::Net { CidrBlock { Value: String } } alias Net }
       map D -> C { Net -> VPC }
     `;
     const res = await fetch(`${base}/analyze`, {

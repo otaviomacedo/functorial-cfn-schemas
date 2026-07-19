@@ -23,7 +23,7 @@
 // ============================================================================
 
 schema ApiGw {
-    obj AWS::ApiGateway::RestApi {
+    type AWS::ApiGateway::RestApi {
         Name        { Source: ApiName }
         Description  { Source: ApiDescription }
         EndpointConfiguration { Default: { Types: ["REGIONAL"] } }
@@ -31,21 +31,21 @@ schema ApiGw {
 
     // Top-level path resource (parent = API root). ParentId shares RestApiId's
     // reference but renders as GetAtt.RootResourceId.
-    obj AWS::ApiGateway::Resource {
+    type AWS::ApiGateway::Resource {
         RestApiId { Source: RestApi, Via: Ref }
         ParentId  { SameAs: RestApiId, Via: GetAtt.RootResourceId }
         PathPart  { Source: PathPart }
     } alias RootResource
 
     // Nested path resource (parent = another resource).
-    obj AWS::ApiGateway::Resource {
+    type AWS::ApiGateway::Resource {
         RestApiId { Source: RestApi }
         ParentId  { Source: RootResource }
         PathPart  { Source: NestedPathPart }
     } alias NestedResource
 
     // Public methods (no authorizer).
-    obj AWS::ApiGateway::Method {
+    type AWS::ApiGateway::Method {
         RestApiId         { Source: RestApi }
         ResourceId        { Source: RootResource }
         HttpMethod        { Source: HttpVerb }
@@ -56,7 +56,7 @@ schema ApiGw {
     } alias PublicMethod
 
     // Authorized methods (with authorizer reference).
-    obj AWS::ApiGateway::Method {
+    type AWS::ApiGateway::Method {
         RestApiId         { Source: RestApi }
         ResourceId        { Source: RootResource }
         HttpMethod        { Source: AuthHttpVerb }
@@ -67,33 +67,33 @@ schema ApiGw {
         }
     } alias AuthorizedMethod
 
-    obj AWS::ApiGateway::Authorizer {
+    type AWS::ApiGateway::Authorizer {
         RestApiId     { Source: RestApi }
         Name          { Source: AuthorizerName }
         Type          { Source: AuthorizerType }
         AuthorizerUri { Source: AuthorizerUri }
     } alias Authorizer
 
-    obj AWS::ApiGateway::Integration {
+    type AWS::ApiGateway::Integration {
         Type                  { Source: IntegrationType }
         IntegrationHttpMethod { Default: "POST" }
         Uri                   { Source: IntegrationUri }
     } alias Integration
 
-    obj AWS::ApiGateway::Integration {
+    type AWS::ApiGateway::Integration {
         Type                  { Source: AuthIntegrationType }
         IntegrationHttpMethod { Default: "POST" }
         Uri                   { Source: AuthIntegrationUri }
     } alias AuthIntegration
 
-    obj AWS::ApiGateway::Deployment {
+    type AWS::ApiGateway::Deployment {
         RestApiId { Source: RestApi }
         structure {
             Toggle { Source: DeployToggle }
         }
     } alias Deployment
 
-    obj AWS::ApiGateway::Stage {
+    type AWS::ApiGateway::Stage {
         RestApiId    { Source: RestApi }
         DeploymentId { Source: Deployment }
         StageName    { Source: StageName }
@@ -135,22 +135,22 @@ schema ApiGw {
 // ============================================================================
 
 schema Api {
-    obj Functorial::APIGW::Api {
+    type Functorial::APIGW::Api {
         Name        { Source: ApiName }
         Description { Source: ApiDescription }
     } alias Api
 
-    obj Functorial::APIGW::Route {
+    type Functorial::APIGW::Route {
         Path { Source: PathPart }
         Api  { Source: Api }
     } alias Route
 
-    obj Functorial::APIGW::SubRoute {
+    type Functorial::APIGW::SubRoute {
         Path   { Source: NestedPathPart }
         Parent { Source: Route }
     } alias SubRoute
 
-    obj Functorial::APIGW::Method {
+    type Functorial::APIGW::Method {
         HttpMethod      { Source: HttpVerb }
         Auth            { Source: AuthType }
         Route           { Source: Route }
@@ -158,7 +158,7 @@ schema Api {
         IntegrationUri  { Source: IntegrationUri }
     } alias Method
 
-    obj Functorial::APIGW::AuthMethod {
+    type Functorial::APIGW::AuthMethod {
         HttpMethod      { Source: AuthHttpVerb }
         Auth            { Source: AuthAuthType }
         Route           { Source: Route }
@@ -167,14 +167,14 @@ schema Api {
         IntegrationUri  { Source: AuthIntegrationUri }
     } alias AuthMethod
 
-    obj Functorial::APIGW::Authorizer {
+    type Functorial::APIGW::Authorizer {
         Name { Source: AuthorizerName }
         Type { Source: AuthorizerType }
         Uri  { Source: AuthorizerUri }
         Api  { Source: Api }
     } alias Authorizer
 
-    obj Functorial::APIGW::Stage {
+    type Functorial::APIGW::Stage {
         StageName { Source: StageName }
         Api       { Source: Api }
     } alias Stage

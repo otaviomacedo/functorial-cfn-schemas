@@ -128,12 +128,12 @@ A **schema** file (`.schema`) declares two categories and the functor between th
 
 ```
 schema Ec2 {                       // C: the CloudFormation category
-    obj AWS::EC2::VPC {
+    type AWS::EC2::VPC {
         CidrBlock          { Value: String }   // a terminal value
         EnableDnsHostnames { Value: Boolean }
     } alias VPC
 
-    obj AWS::EC2::Subnet {
+    type AWS::EC2::Subnet {
         VpcId     { Source: VPC }              // a reference morphism
         CidrBlock { Value: String }
         MapPublicIpOnLaunch { Default: "true" }
@@ -143,7 +143,7 @@ schema Ec2 {                       // C: the CloudFormation category
 }
 
 schema Vpc {                       // D: the user-facing category
-    obj Functorial::VPC::Network {
+    type Functorial::VPC::Network {
         CidrBlock { Value: String }
     } alias Network
     // ...
@@ -154,16 +154,19 @@ map Vpc -> Ec2 {                   // the functor G: D → C
     // object/value mappings and same-name morphisms are inferred;
     // only list a morphism when D and C names differ or a path is composite:
     PublicTier.Network -> PublicSubnet.VpcId
-    Method.IntegrationType -> PublicMethod.Integration * Integration.Type
+    Method.IntegrationType -> PublicMethod.Integration.Type
 }
 ```
 
-Property attributes inside an `obj`: `Value:` (a terminal value type), `Source:`
+Property attributes inside a `type`: `Value:` (a terminal value type), `Source:`
 (a reference to another object), `Default:` (a literal constant), `SameAs:`
 (reuse another property's reference, rendered differently), and `Via:` (`Ref` or
 `GetAtt.Attr`). A `structure { }` block declares references not rendered as CFN
-properties. `value X: T` declares a standalone value object; the `*` operator
-composes morphisms in equations and functor paths.
+properties. `value X: T` declares a standalone value object. Composite paths in
+equations and functor mappings are written by **dot chaining** —
+`Method.ResourceId.RestApiId` (each segment is a property of the previous
+target) — or equivalently with the explicit `*` operator
+(`Method.ResourceId * Resource.RestApiId`).
 
 An **instance** file (`.instance`) names a schema and declares resources/toggles:
 

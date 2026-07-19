@@ -76,9 +76,7 @@ export function commaCategory(
   C: Category,
   D: Category,
 ): { entries: CommaEntry[]; constraints: Constraint[] } {
-  const image = G.image();
   const entries: CommaEntry[] = [];
-  const seenKeys = new Set<string>();
 
   for (const d of D.objects) {
     const gd = G.mapObject(d);

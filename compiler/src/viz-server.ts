@@ -66,7 +66,13 @@ function sendFile(res: http.ServerResponse, filePath: string, mime?: string): vo
       res.end(`Not found: ${path.basename(filePath)}`);
       return;
     }
-    res.writeHead(200, { 'Content-Type': mime ?? MIME[path.extname(filePath)] ?? 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': mime ?? MIME[path.extname(filePath)] ?? 'application/octet-stream',
+      // Dev server: never let the browser serve a stale frontend asset. Without
+      // this, browsers cache app.js/app.css heuristically and reloads keep
+      // showing old code.
+      'Cache-Control': 'no-store, must-revalidate',
+    });
     res.end(data);
   });
 }

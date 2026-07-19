@@ -1,6 +1,8 @@
 /* global cytoscape, cytoscapeFcose */
 'use strict';
 
+console.log('[viz] app.js build: highlight-dim-leaves-v3');
+
 // Register the fcose compound layout (UMD global from /vendor/cytoscape-fcose.js).
 if (window.cytoscapeFcose) cytoscape.use(window.cytoscapeFcose);
 
@@ -154,9 +156,14 @@ const cyStyle = [
       'target-arrow-shape': 'vee',
     },
   },
-  // Highlight / dim states
-  { selector: '.dim', style: { opacity: 0.12 } },
-  { selector: '.hl', style: { 'border-width': 3, 'border-color': '#ffffff' } },
+  // Hover de-emphasis. We fade everything NOT in the hovered fiber; kept
+  // elements get no class at all, so they render exactly as normal.
+  //
+  // IMPORTANT: `.dim` is only ever applied to leaf nodes and edges — never to
+  // the compound containers (panels, fiber boxes). Cytoscape multiplies a
+  // child's opacity by its parent's, so dimming a container would drag every
+  // kept child down with it (boxes go faint, labels vanish).
+  { selector: '.dim', style: { opacity: 0.15 } },
 ];
 
 function badgeText(node) {
@@ -228,16 +235,29 @@ function wireInteractions() {
 function highlightFiber(fiber) {
   if (!fiber) return;
   cy.batch(() => {
-    cy.elements().addClass('dim');
-    const inFiber = cy.nodes(`[fiber="${cssEsc(fiber)}"]`);
-    inFiber.removeClass('dim').addClass('hl');
-    inFiber.connectedEdges().removeClass('dim');
-    inFiber.connectedEdges().connectedNodes().removeClass('dim');
+    cy.elements().removeClass('dim');
+
+    // The kept set: every element belonging to the hovered fiber — its
+    // d-object, its fiber box, and its c-objects (which include G(d)). These
+    // are left untouched so they render exactly as normal.
+    const kept = cy.nodes(`[fiber="${cssEsc(fiber)}"]`);
+    const keptIds = new Set(kept.map((n) => n.id()));
+
+    // Dim only leaf nodes outside the fiber. Compound containers (panels, fiber
+    // boxes) are never dimmed: their opacity cascades onto kept children.
+    cy.nodes('[role="d-object"], [role="c-object"]').forEach((n) => {
+      if (!keptIds.has(n.id())) n.addClass('dim');
+    });
+
+    // An edge stays bright only when BOTH endpoints are kept; otherwise it dims.
+    cy.edges().forEach((e) => {
+      if (!keptIds.has(e.source().id()) || !keptIds.has(e.target().id())) e.addClass('dim');
+    });
   });
 }
 
 function clearHighlight() {
-  cy.batch(() => cy.elements().removeClass('dim hl'));
+  cy.batch(() => cy.elements().removeClass('dim'));
 }
 
 function showDetail(d) {

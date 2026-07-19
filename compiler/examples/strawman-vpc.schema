@@ -1,0 +1,57 @@
+schema CloudFormation {
+  type AWS::EC2::VPC {
+    CidrBlock          { Value: String }
+    EnableDnsHostnames { Value: Boolean }
+    EnableDnsSupport   { Value: Boolean }
+    InstanceTenancy    { Value: String }
+  } alias VPC
+
+  type AWS::EC2::Subnet {
+    VpcId            { Source: VPC }
+    CidrBlock        { Value: String }
+    AvailabilityZone { Value: String }
+  } alias Subnet
+
+  type AWS::EC2::SubnetRouteTableAssociation {
+    SubnetId     { Source: Subnet }
+    RouteTableId { Source: RouteTable }
+  } alias RouteTableAssociation
+
+  type AWS::EC2::RouteTable {
+    VpcId { Source: VPC }
+    structure {
+      Subnet { Source: Subnet }
+    }
+  } alias RouteTable
+
+  RouteTableAssociation.RouteTableId.VpcId = RouteTableAssociation.SubnetId.VpcId
+  RouteTableAssociation.SubnetId = RouteTableAssociation.RouteTableId.Subnet
+  RouteTable.Subnet.VpcId = RouteTable.VpcId
+}
+
+schema Abstract {
+  type Functorial::VPC::Network {
+    CidrBlock    { Value: String }
+    DnsHostnames { Value: Boolean }
+    DnsSupport   { Value: Boolean }
+    Tenancy      { Value: String }
+  } alias Network
+
+  type Functorial::VPC::Subnet {
+    CidrBlock        { Value: String }
+    AvailabilityZone { Value: String }
+    Network          { Source: Network }
+  } alias Subnet
+}
+
+map Abstract -> CloudFormation {
+  Network      -> VPC
+  Subnet       -> Subnet
+
+  // Only the mappings that aren't inferable by same-name need listing.
+  Network.DnsHostnames -> VPC.EnableDnsHostnames
+  Network.DnsSupport   -> VPC.EnableDnsSupport
+  Network.Tenancy      -> VPC.InstanceTenancy
+
+  Subnet.Network       -> Subnet.VpcId
+}

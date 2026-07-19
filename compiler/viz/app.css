@@ -56,19 +56,56 @@ html, body {
   border-right: 1px solid var(--border);
   min-width: 0;
 }
-#editor {
+/* Syntax-highlight overlay: a colored <pre> behind a transparent <textarea>.
+   Both layers MUST share identical text metrics and box model so the caret and
+   the painted tokens line up exactly. */
+#editor-wrap {
+  position: relative;
   flex: 1;
-  resize: none;
-  border: 0;
-  outline: none;
-  padding: 14px 16px;
+  overflow: hidden;
   background: var(--panel);
-  color: var(--text);
+}
+#editor,
+#highlight {
+  margin: 0;
+  border: 0;
+  padding: 14px 16px;
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1.6;
   tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
+#highlight {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  color: var(--text);
+  pointer-events: none;
+}
+#highlight code { font: inherit; }
+#editor {
+  position: absolute;
+  inset: 0;
+  resize: none;
+  outline: none;
+  overflow: auto;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+}
+#editor::selection { background: rgba(110, 168, 254, 0.3); }
+
+/* Token colors (schema DSL). */
+#highlight .tok-comment { color: #6b7280; font-style: italic; }
+#highlight .tok-keyword { color: #c792ea; }
+#highlight .tok-type    { color: #7fd4c1; }
+#highlight .tok-attr    { color: #82aaff; }
+#highlight .tok-string  { color: #c3e88d; }
+#highlight .tok-number  { color: #f78c6c; }
+#highlight .tok-punct   { color: #89ddff; }
 #error-bar {
   padding: 8px 16px;
   background: #2a1416;

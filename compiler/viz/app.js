@@ -1,7 +1,7 @@
 /* global cytoscape, cytoscapeFcose */
 'use strict';
 
-console.log('[viz] app.js build: highlight-dim-leaves-v3');
+console.log('[viz] app.js build: syntax-highlight-v4');
 
 // Register the fcose compound layout (UMD global from /vendor/cytoscape-fcose.js).
 if (window.cytoscapeFcose) cytoscape.use(window.cytoscapeFcose);
@@ -26,6 +26,8 @@ const fill = (i) => PALETTE[i % PALETTE.length][0];
 const stroke = (i) => PALETTE[i % PALETTE.length][1];
 
 const editor = document.getElementById('editor');
+const highlightCode = document.querySelector('#highlight code');
+const highlightPre = document.getElementById('highlight');
 const errorBar = document.getElementById('error-bar');
 const statusEl = document.getElementById('status');
 const metaEl = document.getElementById('meta');
@@ -301,6 +303,148 @@ function renderLegend(model) {
   });
 }
 
+// ---- Syntax highlighting ---------------------------------------------------
+// A lightweight tokenizer for the schema DSL, matching the grammar in
+// src/lexer.ts + schema-dsl.ts closely enough to color it. The colored output
+// is painted into a <pre> layer sitting behind the transparent <textarea>.
+
+// Block-leading keywords (schema-dsl.ts) plus the `map` sub-keywords.
+const SCHEMA_KEYWORDS = new Set([
+  'schema', 'map', 'type', 'value', 'toggle', 'macro', 'structure',
+  'import', 'alias', 'expected', 'fullness', 'because', 'instance', 'of',
+]);
+// Property attributes (`Name { Attr: ... }`) and rendering annotations.
+const SCHEMA_ATTRS = new Set(['Value', 'Source', 'Default', 'SameAs', 'Via']);
+
+function escapeCode(s) {
+  return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+function span(cls, text) {
+  return `<span class="${cls}">${escapeCode(text)}</span>`;
+}
+
+/** Tokenize + wrap schema source into colored HTML spans. */
+function highlightSchema(src) {
+  let out = '';
+  let i = 0;
+  const n = src.length;
+  const isIdentStart = (c) => /[A-Za-z_]/.test(c);
+  const isIdentPart = (c) => /[A-Za-z0-9_]/.test(c);
+
+  while (i < n) {
+    const c = src[i];
+
+    // Whitespace — emit verbatim.
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      out += c;
+      i++;
+      continue;
+    }
+
+    // Line comment.
+    if (c === '/' && src[i + 1] === '/') {
+      let j = i;
+      while (j < n && src[j] !== '\n') j++;
+      out += span('tok-comment', src.slice(i, j));
+      i = j;
+      continue;
+    }
+
+    // Block comment.
+    if (c === '/' && src[i + 1] === '*') {
+      let j = i + 2;
+      while (j < n && !(src[j] === '*' && src[j + 1] === '/')) j++;
+      j = Math.min(n, j + 2);
+      out += span('tok-comment', src.slice(i, j));
+      i = j;
+      continue;
+    }
+
+    // String literal (with escapes).
+    if (c === '"') {
+      let j = i + 1;
+      while (j < n && src[j] !== '"') {
+        if (src[j] === '\\') j++;
+        j++;
+      }
+      j = Math.min(n, j + 1);
+      out += span('tok-string', src.slice(i, j));
+      i = j;
+      continue;
+    }
+
+    // Number (optionally negative, with a fractional part).
+    if (/[0-9]/.test(c) || (c === '-' && /[0-9]/.test(src[i + 1]))) {
+      let j = c === '-' ? i + 1 : i;
+      while (j < n && /[0-9]/.test(src[j])) j++;
+      if (src[j] === '.' && /[0-9]/.test(src[j + 1])) {
+        j++;
+        while (j < n && /[0-9]/.test(src[j])) j++;
+      }
+      out += span('tok-number', src.slice(i, j));
+      i = j;
+      continue;
+    }
+
+    // Identifier, possibly a `::`-qualified type name (Foo::Bar::Baz).
+    if (isIdentStart(c)) {
+      let j = i;
+      while (j < n && isIdentPart(src[j])) j++;
+      // Extend across `::` segments into one type-name token.
+      let qualified = false;
+      while (src[j] === ':' && src[j + 1] === ':' && isIdentStart(src[j + 2] || '')) {
+        qualified = true;
+        j += 2;
+        while (j < n && isIdentPart(src[j])) j++;
+      }
+      const word = src.slice(i, j);
+      let cls;
+      if (qualified) cls = 'tok-type';
+      else if (SCHEMA_KEYWORDS.has(word)) cls = 'tok-keyword';
+      else if (SCHEMA_ATTRS.has(word)) cls = 'tok-attr';
+      if (cls) out += span(cls, word);
+      else out += escapeCode(word);
+      i = j;
+      continue;
+    }
+
+    // Multi-char punctuation.
+    if ((c === '-' && src[i + 1] === '>') || (c === ':' && src[i + 1] === ':')) {
+      out += span('tok-punct', src.slice(i, i + 2));
+      i += 2;
+      continue;
+    }
+
+    // Single-char punctuation.
+    if ('{}[]():,.*=!'.includes(c)) {
+      out += span('tok-punct', c);
+      i++;
+      continue;
+    }
+
+    // Anything else — emit escaped so the layers stay aligned.
+    out += escapeCode(c);
+    i++;
+  }
+
+  return out;
+}
+
+/** Repaint the highlight layer from the textarea's current value. */
+function renderHighlight() {
+  // A trailing newline needs an extra blank line so the <pre> height matches
+  // the textarea (which reserves a line for the final \n).
+  const src = editor.value;
+  highlightCode.innerHTML = highlightSchema(src) + (src.endsWith('\n') ? '\n' : '');
+  syncScroll();
+}
+
+function syncScroll() {
+  highlightPre.scrollTop = editor.scrollTop;
+  highlightPre.scrollLeft = editor.scrollLeft;
+}
+
 // ---- Analyze pipeline ------------------------------------------------------
 
 let analyzeTimer = null;
@@ -359,11 +503,16 @@ async function loadExample(name) {
   picker.value = name;
   const resp = await fetch('/examples/' + encodeURIComponent(name));
   editor.value = await resp.text();
+  renderHighlight();
   await analyze();
 }
 
 picker.onchange = () => loadExample(picker.value);
-editor.addEventListener('input', scheduleAnalyze);
+editor.addEventListener('input', () => {
+  renderHighlight();
+  scheduleAnalyze();
+});
+editor.addEventListener('scroll', syncScroll);
 
 function cssEsc(s) {
   return s.replace(/["\\]/g, '\\$&');

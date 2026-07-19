@@ -20,7 +20,11 @@
 
   <main id="split">
     <section id="editor-panel">
-      <textarea id="editor" spellcheck="false" autocomplete="off"></textarea>
+      <div id="editor-wrap">
+        <pre id="highlight" aria-hidden="true"><code></code></pre>
+        <textarea id="editor" spellcheck="false" autocomplete="off"
+          autocapitalize="off" autocorrect="off"></textarea>
+      </div>
       <div id="error-bar" class="hidden"></div>
     </section>
 

@@ -119,15 +119,15 @@ schema ApiGw {
     toggle DeployToggle
 
     // Public method's API must match its Resource's API.
-    PublicMethod.RestApiId = PublicMethod.ResourceId * RootResource.RestApiId
+    PublicMethod.RestApiId = PublicMethod.ResourceId.RestApiId
     // Authorized method's API must match its Resource's API.
-    AuthorizedMethod.RestApiId = AuthorizedMethod.ResourceId * RootResource.RestApiId
+    AuthorizedMethod.RestApiId = AuthorizedMethod.ResourceId.RestApiId
     // Authorizer's API must match the authorized method's API.
-    AuthorizedMethod.RestApiId = AuthorizedMethod.AuthorizerId * Authorizer.RestApiId
+    AuthorizedMethod.RestApiId = AuthorizedMethod.AuthorizerId.RestApiId
     // Nested resource's API must match its parent's API.
-    NestedResource.RestApiId = NestedResource.ParentId * RootResource.RestApiId
+    NestedResource.RestApiId = NestedResource.ParentId.RestApiId
     // Stage's API must match its Deployment's API.
-    Stage.RestApiId = Stage.DeploymentId * Deployment.RestApiId
+    Stage.RestApiId = Stage.DeploymentId.RestApiId
 }
 
 // ============================================================================
@@ -203,7 +203,7 @@ schema Api {
     // Resource and the Authorizer, and they're equated), so D must state it too
     // — otherwise G is not faithful: the two distinct references collapse in the
     // template and the user's data is silently merged.
-    AuthMethod.Route * Route.Api = AuthMethod.Authorizer * Authorizer.Api
+    AuthMethod.Route.Api = AuthMethod.Authorizer.Api
 
     // Users can write Methods inline on a Route.
     macro Functorial::APIGW::Route.Methods {
@@ -233,23 +233,23 @@ map Api -> ApiGw {
     SubRoute.Parent -> NestedResource.ParentId
 
     Method.Route            -> PublicMethod.ResourceId
-    Method.IntegrationType  -> PublicMethod.Integration * Integration.Type
-    Method.IntegrationUri   -> PublicMethod.Integration * Integration.Uri
+    Method.IntegrationType  -> PublicMethod.Integration.Type
+    Method.IntegrationUri   -> PublicMethod.Integration.Uri
 
     AuthMethod.Route            -> AuthorizedMethod.ResourceId
     AuthMethod.Authorizer       -> AuthorizedMethod.AuthorizerId
-    AuthMethod.IntegrationType  -> AuthorizedMethod.Integration * AuthIntegration.Type
-    AuthMethod.IntegrationUri   -> AuthorizedMethod.Integration * AuthIntegration.Uri
+    AuthMethod.IntegrationType  -> AuthorizedMethod.Integration.Type
+    AuthMethod.IntegrationUri   -> AuthorizedMethod.Integration.Uri
 
     Authorizer.Api -> Authorizer.RestApiId
     Stage.Api      -> Stage.RestApiId
 
     // Intended fullness gap: in C a Stage reaches the DeployToggle through its
-    // Deployment (Stage.DeploymentId * Deployment.Toggle), but D's Stage has no
+    // Deployment (Stage.DeploymentId.Toggle), but D's Stage has no
     // such reference — the Deployment is an auto-created singleton the Kan
     // extension mints, and the toggle cascade is deliberate, not user data. We
     // declare it so the checker reports it as expected rather than warning that
     // instances might be duplicated/filtered.
-    expected fullness Stage.DeploymentId * Deployment.Toggle
+    expected fullness Stage.DeploymentId.Toggle
         because "Deployment is auto-created; the toggle cascade is intended, not user-authored"
 }

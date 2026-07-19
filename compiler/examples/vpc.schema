@@ -138,9 +138,9 @@ schema Ec2 {
     toggle VpnToggle
 
     // The RT association pairs the RT with the subnet it structurally belongs to.
-    PublicRTAssoc.RouteTableId * PublicRT.Subnet = PublicRTAssoc.SubnetId
-    PrivateRTAssoc.RouteTableId * PrivateRT.Subnet = PrivateRTAssoc.SubnetId
-    IsolatedRTAssoc.RouteTableId * IsolatedRT.Subnet = IsolatedRTAssoc.SubnetId
+    PublicRTAssoc.RouteTableId.Subnet = PublicRTAssoc.SubnetId
+    PrivateRTAssoc.RouteTableId.Subnet = PrivateRTAssoc.SubnetId
+    IsolatedRTAssoc.RouteTableId.Subnet = IsolatedRTAssoc.SubnetId
 }
 
 // ============================================================================

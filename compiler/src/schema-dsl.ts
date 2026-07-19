@@ -215,8 +215,8 @@ function parseMacro(ts: TokenStream): MacroDecl {
 }
 
 /**
- * Parse an equation `<path> = <path>`, where a path is a `*`-separated list of
- * morphism names and each morphism name is `Object.Property`.
+ * Parse an equation `<path> = <path>`. See {@link parseMorphismPath} for the
+ * path grammar.
  */
 function parseEquation(ts: TokenStream): EquationDecl {
   const lhs = parseMorphismPath(ts);
@@ -225,22 +225,39 @@ function parseEquation(ts: TokenStream): EquationDecl {
   return { kind: 'equation', lhs, rhs };
 }
 
-/** A `*`-separated path of `Object.Property` morphism names. */
+/**
+ * Parse a composition path. Two interchangeable spellings are accepted:
+ *
+ *   - Dot chaining (preferred): `AuthMethod.Route.Api` — a morphism followed by
+ *     properties of each successive target object. Reads like a field access.
+ *   - Explicit `*` composition: `AuthMethod.Route * Route.Api` — each factor
+ *     written out as a full `Object.Property` morphism.
+ *
+ * Both denote the same composite. The two can also be mixed, e.g.
+ * `A.b.c * E.f`. Each `*`-separated group is returned as one dotted string; the
+ * lowering step expands multi-hop chains into individual morphism names once
+ * the object/morphism definitions (and hence each hop's target) are known —
+ * see {@link expandMorphismPath}.
+ */
 function parseMorphismPath(ts: TokenStream): string[] {
-  const segments: string[] = [parseMorphismName(ts)];
+  const groups: string[] = [parseChain(ts)];
   while (ts.isPunct('*')) {
     ts.next();
-    segments.push(parseMorphismName(ts));
+    groups.push(parseChain(ts));
   }
-  return segments;
+  return groups;
 }
 
-/** A single morphism name: `Object.Property`. */
-function parseMorphismName(ts: TokenStream): string {
-  const obj = ts.expectIdent().value;
+/** A dot chain `Object.Prop(.Prop)*`, returned as its raw dotted string. */
+function parseChain(ts: TokenStream): string {
+  const parts: string[] = [ts.expectIdent().value];
   ts.expectPunct('.');
-  const prop = ts.expectIdent().value;
-  return `${obj}.${prop}`;
+  parts.push(ts.expectIdent().value);
+  while (ts.isPunct('.')) {
+    ts.next();
+    parts.push(ts.expectIdent().value);
+  }
+  return parts.join('.');
 }
 
 function parseMapBlock(ts: TokenStream): MapBlock {
@@ -379,6 +396,11 @@ export function lowerSchemaFile(
   }
   const codomainLocal = schemaByName.get(map.to);
 
+  // `expected fullness` paths are codomain paths; expand their dot chains the
+  // same way map RHS paths are expanded (against the codomain, when local).
+  const expandFullness = (targetOf: (n: string) => string | undefined) =>
+    map.expectedFullness.map(e => ({ path: expandMorphismPath(e.path, targetOf), reason: e.reason }));
+
   if (!codomainLocal) {
     // Cross-file: the codomain lives in an imported parent.
     if (file.imports.length === 0) {
@@ -392,7 +414,7 @@ export function lowerSchemaFile(
       raw: {
         SimplifiedSchema: { ...simplified, Functor: functor },
         Imports: file.imports[0],
-        ExpectedFullness: map.expectedFullness,
+        ExpectedFullness: expandFullness(() => undefined),
       },
       hasImport: true,
       importPath: file.imports[0],
@@ -408,7 +430,7 @@ export function lowerSchemaFile(
     raw: {
       OriginalSchema: original,
       SimplifiedSchema: { ...simplified, Functor: functor },
-      ExpectedFullness: map.expectedFullness,
+      ExpectedFullness: expandFullness(morphismTargets(codomainLocal)),
     },
     hasImport: false,
   };
@@ -450,9 +472,9 @@ function lowerSchemaObjects(schema: SchemaBlock, headerKey: 'CfnType' | 'Type'):
   const result: any = { Objects };
 
   if (schema.equations.length > 0) {
-    result.Equations = schema.equations.map(
-      eq => `${eq.lhs.join(' . ')} = ${eq.rhs.join(' . ')}`,
-    );
+    const targetOf = morphismTargets(schema);
+    const path = (groups: string[]) => expandMorphismPath(groups, targetOf).join(' . ');
+    result.Equations = schema.equations.map(eq => `${path(eq.lhs)} = ${path(eq.rhs)}`);
   }
 
   if (schema.macros.length > 0) {
@@ -539,10 +561,20 @@ function buildFunctor(
   const domainMorphs = inferMorphisms(domain);
   const domainMorphByName = new Map(domainMorphs.map(m => [m.name, m]));
 
+  // Map RHS paths are codomain paths, so their dot chains expand against the
+  // codomain's morphisms. On a cross-file import (no local codomain) chains
+  // cannot be expanded here; a single `A.b` hop still passes through verbatim.
+  const expandCodomain = codomain
+    ? (groups: string[]) => expandMorphismPath(groups, morphismTargets(codomain))
+    : (groups: string[]) => expandMorphismPath(groups, () => undefined);
+
   // Morphism mappings: explicit first.
   const morphismMap: Record<string, string> = {};
+  const expandedTo = new Map<string, string[]>();
   for (const mm of map.morphismMappings) {
-    morphismMap[mm.from] = mm.to.join(' . ');
+    const to = expandCodomain(mm.to);
+    expandedTo.set(mm.from, to);
+    morphismMap[mm.from] = to.join(' . ');
   }
 
   if (codomain) {
@@ -557,8 +589,9 @@ function buildFunctor(
     for (const mm of map.morphismMappings) {
       const dm = domainMorphByName.get(mm.from);
       if (!dm) continue;
-      const first = codomainMorphByName.get(mm.to[0]);
-      const last = codomainMorphByName.get(mm.to[mm.to.length - 1]);
+      const to = expandedTo.get(mm.from)!;
+      const first = codomainMorphByName.get(to[0]);
+      const last = codomainMorphByName.get(to[to.length - 1]);
       if (first && objectMap[dm.source] === undefined) objectMap[dm.source] = first.source;
       if (last && objectMap[dm.target] === undefined) objectMap[dm.target] = last.target;
     }
@@ -653,6 +686,43 @@ function inferMorphisms(schema: SchemaBlock): Morph[] {
     }
   }
   return morphs;
+}
+
+/**
+ * Expand a parsed composition path into a flat list of `Object.Property`
+ * morphism names. Each `*`-separated group may be a dot chain: `A.b.c` denotes
+ * the composite `A.b * B.c`, where `B = target(A.b)`. `targetOf` resolves a
+ * morphism name to its target object; it is consulted only for chains longer
+ * than a single hop, so plain `A.b` groups (and explicit `*` compositions of
+ * them) need no schema context and always expand verbatim.
+ */
+function expandMorphismPath(groups: string[], targetOf: (name: string) => string | undefined): string[] {
+  const out: string[] = [];
+  for (const group of groups) {
+    const parts = group.split('.');
+    let obj = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+      const morph = `${obj}.${parts[i]}`;
+      out.push(morph);
+      if (i < parts.length - 1) {
+        const t = targetOf(morph);
+        if (t === undefined) {
+          throw new Error(
+            `Cannot resolve dot chain '${group}': morphism '${morph}' is unknown, ` +
+              `so the next hop '.${parts[i + 1]}' has no source object.`,
+          );
+        }
+        obj = t;
+      }
+    }
+  }
+  return out;
+}
+
+/** Map from morphism name to its target object, for a schema block. */
+function morphismTargets(schema: SchemaBlock): (name: string) => string | undefined {
+  const byName = new Map(inferMorphisms(schema).map(m => [m.name, m.target]));
+  return name => byName.get(name);
 }
 
 function dedupe(xs: string[]): string[] {

@@ -161,6 +161,51 @@ describe('schema DSL lowering → raw shape', () => {
     });
   });
 
+  it('expands dot-chained paths identically to explicit * composition', () => {
+    // A.b.c reads as field access but denotes the composite A.b * b→target.c.
+    const dot = `
+      schema C {
+        obj AWS::Method { ResourceId { Source: Resource } } alias Method
+        obj AWS::Resource { RestApiId { Source: Api } } alias Resource
+        obj AWS::Api {} alias Api
+      }
+      schema D {
+        obj T::M { R { Source: R } A { Source: A } } alias M
+        obj T::R { A { Source: A } } alias R
+        obj T::A {} alias A
+        M.A = M.R.A
+      }
+      map D -> C {
+        M -> Method
+        R -> Resource
+        A -> Api
+        M.R -> Method.ResourceId
+        M.A -> Method.ResourceId.RestApiId
+      }
+    `;
+    const star = dot
+      .replace('M.A = M.R.A', 'M.A = M.R * R.A')
+      .replace('M.A -> Method.ResourceId.RestApiId', 'M.A -> Method.ResourceId * Resource.RestApiId');
+
+    const dotRaw = lowerSchemaFile(parseSchemaFile(dot)).raw;
+    const starRaw = lowerSchemaFile(parseSchemaFile(star)).raw;
+
+    expect(dotRaw.SimplifiedSchema.Equations).toEqual(['M.A = M.R . R.A']);
+    expect(dotRaw).toEqual(starRaw);
+  });
+
+  it('rejects a dot chain whose interior morphism is unknown', () => {
+    const src = `
+      schema C { obj AWS::A { B { Value: String } } alias A }
+      schema D {
+        obj T::A { B { Value: String } } alias A
+        A.Nope.Foo = A.B
+      }
+      map D -> C { A -> A }
+    `;
+    expect(() => lowerSchemaFile(parseSchemaFile(src))).toThrow(/Cannot resolve dot chain 'A\.Nope\.Foo'/);
+  });
+
   it('lowers composite * paths in the map to " . " paths', () => {
     const src = `
       schema C {

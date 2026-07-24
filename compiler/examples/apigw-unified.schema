@@ -1,0 +1,202 @@
+// Schema: API Gateway (REST) — UNIFIED with optional/span references.
+//
+// This is the span-based rewrite of apigw.schema. The PublicMethod /
+// AuthorizedMethod split (and the parallel Integration / AuthIntegration split,
+// and the doubled value objects) are gone: there is ONE Method with an OPTIONAL
+// authorizer reference. The compiler desugars `AuthorizerId?` to a span and
+// re-roots the shared-API equation at its apex, exactly reproducing what the
+// hand-written split used to express.
+//
+// Structural invariants enforced by path equations:
+//   1. A method's RestApiId matches its Resource's RestApiId
+//   2. If a method has an authorizer, the authorizer belongs to the same API
+//   3. A nested resource's API matches its parent's API
+//   4. A stage's API matches its deployment's API
+
+// ============================================================================
+// ApiGw: the CloudFormation-level category (C)
+// ============================================================================
+
+schema ApiGw {
+    type AWS::ApiGateway::RestApi {
+        Name        { Source: ApiName }
+        Description  { Source: ApiDescription }
+        EndpointConfiguration { Default: { Types: ["REGIONAL"] } }
+    } alias RestApi
+
+    type AWS::ApiGateway::Resource {
+        RestApiId { Source: RestApi, Via: Ref }
+        ParentId  { SameAs: RestApiId, Via: GetAtt.RootResourceId }
+        PathPart  { Source: PathPart }
+    } alias RootResource
+
+    type AWS::ApiGateway::Resource {
+        RestApiId { Source: RestApi }
+        ParentId  { Source: RootResource }
+        PathPart  { Source: NestedPathPart }
+    } alias NestedResource
+
+    // One Method. The authorizer is an optional, shared reference (a span): many
+    // methods may reference one authorizer, and a method may have none.
+    type AWS::ApiGateway::Method {
+        RestApiId         { Source: RestApi }
+        ResourceId        { Source: RootResource }
+        HttpMethod        { Source: HttpVerb }
+        AuthorizationType { Source: AuthType }
+        AuthorizerId?     { Source: Authorizer }
+        structure {
+            Integration { Source: Integration }
+        }
+    } alias Method
+
+    type AWS::ApiGateway::Authorizer {
+        RestApiId     { Source: RestApi }
+        Name          { Source: AuthorizerName }
+        Type          { Source: AuthorizerType }
+        AuthorizerUri { Source: AuthorizerUri }
+    } alias Authorizer
+
+    type AWS::ApiGateway::Integration {
+        Type                  { Source: IntegrationType }
+        IntegrationHttpMethod { Default: "POST" }
+        Uri                   { Source: IntegrationUri }
+    } alias Integration
+
+    type AWS::ApiGateway::Deployment {
+        RestApiId { Source: RestApi }
+        structure {
+            Toggle { Source: DeployToggle }
+        }
+    } alias Deployment
+
+    type AWS::ApiGateway::Stage {
+        RestApiId    { Source: RestApi }
+        DeploymentId { Source: Deployment }
+        StageName    { Source: StageName }
+    } alias Stage
+
+    value ApiName: String
+    value ApiDescription: String
+    value PathPart: String
+    value NestedPathPart: String
+    value HttpVerb: String
+    value AuthType: String
+    value IntegrationType: String
+    value IntegrationUri: String
+    value AuthorizerName: String
+    value AuthorizerType: String
+    value AuthorizerUri: String
+    value StageName: String
+
+    toggle DeployToggle
+
+    // Method's API must match its Resource's API.
+    Method.RestApiId = Method.ResourceId.RestApiId
+    // If a method has an authorizer, they share an API. Written through the
+    // optional field; the compiler re-roots it at the span apex, so it binds
+    // only methods that actually have an authorizer.
+    Method.RestApiId = Method.AuthorizerId.RestApiId
+    // Nested resource's API must match its parent's API.
+    NestedResource.RestApiId = NestedResource.ParentId.RestApiId
+    // Stage's API must match its Deployment's API.
+    Stage.RestApiId = Stage.DeploymentId.RestApiId
+}
+
+// ============================================================================
+// Api: the user-facing category (D)
+// ============================================================================
+
+schema Api {
+    type Functorial::APIGW::Api {
+        Name        { Source: ApiName }
+        Description { Source: ApiDescription }
+    } alias Api
+
+    type Functorial::APIGW::Route {
+        Path { Source: PathPart }
+        Api  { Source: Api }
+    } alias Route
+
+    type Functorial::APIGW::SubRoute {
+        Path   { Source: NestedPathPart }
+        Parent { Source: Route }
+    } alias SubRoute
+
+    // One Method type. `Authorizer?` is the optional shared reference.
+    type Functorial::APIGW::Method {
+        HttpMethod      { Source: HttpVerb }
+        Auth            { Source: AuthType }
+        Route           { Source: Route }
+        Authorizer?     { Source: Authorizer }
+        IntegrationType { Source: IntegrationType }
+        IntegrationUri  { Source: IntegrationUri }
+    } alias Method
+
+    type Functorial::APIGW::Authorizer {
+        Name { Source: AuthorizerName }
+        Type { Source: AuthorizerType }
+        Uri  { Source: AuthorizerUri }
+        Api  { Source: Api }
+    } alias Authorizer
+
+    type Functorial::APIGW::Stage {
+        StageName { Source: StageName }
+        Api       { Source: Api }
+    } alias Stage
+
+    value ApiName: String
+    value ApiDescription: String
+    value PathPart: String
+    value NestedPathPart: String
+    value HttpVerb: String
+    value AuthType: String
+    value IntegrationType: String
+    value IntegrationUri: String
+    value AuthorizerName: String
+    value AuthorizerType: String
+    value AuthorizerUri: String
+    value StageName: String
+
+    toggle DeployToggle
+
+    // A method's route and its authorizer must belong to the same API. Written
+    // through the optional field; re-rooted at the span apex by the compiler.
+    // This is the faithfulness fix that used to live on AuthMethod.
+    Method.Route.Api = Method.Authorizer.Api
+
+    // Users can write Methods inline on a Route.
+    macro Functorial::APIGW::Route.Methods {
+        expandsTo: "Functorial::APIGW::Method"
+        elementProperty: "HttpMethod"
+        backRef: "Route"
+        forward: [IntegrationUri]
+    }
+}
+
+// ============================================================================
+// The functor G: Api -> ApiGw
+// ============================================================================
+
+map Api -> ApiGw {
+    Api        -> RestApi
+    Route      -> RootResource
+    SubRoute   -> NestedResource
+    Method     -> Method
+    Authorizer -> Authorizer
+    Stage      -> Stage
+
+    Route.Path      -> RootResource.PathPart
+    Route.Api       -> RootResource.RestApiId
+    SubRoute.Path   -> NestedResource.PathPart
+    SubRoute.Parent -> NestedResource.ParentId
+
+    Method.Route            -> Method.ResourceId
+    Method.IntegrationType  -> Method.Integration.Type
+    Method.IntegrationUri   -> Method.Integration.Uri
+
+    Authorizer.Api -> Authorizer.RestApiId
+    Stage.Api      -> Stage.RestApiId
+
+    expected fullness Stage.DeploymentId.Toggle
+        because "Deployment is auto-created; the toggle cascade is intended, not user-authored"
+}

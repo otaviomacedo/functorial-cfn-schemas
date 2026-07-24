@@ -22,6 +22,7 @@ import {
   ObjDecl,
   PropDecl,
   ValueDecl,
+  SumDecl,
   EquationDecl,
   MacroDecl,
   MapBlock,
@@ -65,6 +66,7 @@ function parseSchemaBlock(ts: TokenStream): SchemaBlock {
   const objects: ObjDecl[] = [];
   const values: ValueDecl[] = [];
   const toggles: string[] = [];
+  const sums: SumDecl[] = [];
   const equations: EquationDecl[] = [];
   const macros: MacroDecl[] = [];
 
@@ -78,6 +80,8 @@ function parseSchemaBlock(ts: TokenStream): SchemaBlock {
     } else if (ts.isKeyword('toggle')) {
       ts.next();
       toggles.push(ts.expectIdent().value);
+    } else if (ts.isKeyword('data')) {
+      sums.push(parseSum(ts));
     } else if (ts.isKeyword('macro')) {
       macros.push(parseMacro(ts));
     } else {
@@ -87,7 +91,7 @@ function parseSchemaBlock(ts: TokenStream): SchemaBlock {
   }
 
   ts.expectPunct('}');
-  return { kind: 'schema', name, objects, values, toggles, equations, macros };
+  return { kind: 'schema', name, objects, values, toggles, sums, equations, macros };
 }
 
 /** Parse a `::`-qualified type name, e.g. `AWS::EC2::VPC` or `Functorial::VPC::Network`. */
@@ -134,14 +138,34 @@ function parseObj(ts: TokenStream): ObjDecl {
 }
 
 /**
- * Parse one property: `Name { Attr: val, ... }`.
- * Recognized attributes: Value, Source, Default, SameAs, Via.
+ * Parse one property. Two spellings:
+ *
+ *   Name  { Attr: val, ... }      full form; attributes below
+ *   Name? { Attr: val, ... }      optional (lowers to a span)
+ *   Name?: T                      shorthand for `Name? { Source: T }`
+ *
+ * A trailing `?` before the block (or before `:` in the shorthand) marks the
+ * reference optional. Recognized attributes: Value, Source, Default, SameAs, Via.
  */
 function parseProp(ts: TokenStream): PropDecl {
   const name = ts.expectIdent().value;
+
+  let optional = false;
+  if (ts.isPunct('?')) {
+    ts.next();
+    optional = true;
+  }
+
+  // Shorthand `Name?: T` / `Name: T` — a bare Source target, no attribute block.
+  if (ts.isPunct(':')) {
+    ts.next();
+    const source = ts.expectIdent().value;
+    return { name, source, optional };
+  }
+
   ts.expectPunct('{');
 
-  const prop: PropDecl = { name };
+  const prop: PropDecl = { name, optional };
   while (!ts.isPunct('}')) {
     if (ts.atEof()) throw ts.error('Unterminated property block');
     const attr = ts.expectIdent().value;
@@ -191,6 +215,19 @@ function parseValue(ts: TokenStream): ValueDecl {
   ts.expectPunct(':');
   const valueType = parseTypeName(ts);
   return { kind: 'value', name, valueType };
+}
+
+/** Parse `data T = V1 | V2 | …`. Variants are existing object names. */
+function parseSum(ts: TokenStream): SumDecl {
+  ts.expectKeyword('data');
+  const name = ts.expectIdent().value;
+  ts.expectPunct('=');
+  const variants: string[] = [ts.expectIdent().value];
+  while (ts.isPunct('|')) {
+    ts.next();
+    variants.push(ts.expectIdent().value);
+  }
+  return { kind: 'sum', name, variants };
 }
 
 function parseMacro(ts: TokenStream): MacroDecl {
@@ -431,9 +468,56 @@ export function lowerSchemaFile(
       OriginalSchema: original,
       SimplifiedSchema: { ...simplified, Functor: functor },
       ExpectedFullness: expandFullness(morphismTargets(codomainLocal)),
+      SpanCoverage: spanCoverageDiagnostics(domain, codomainLocal, functor.Objects),
     },
     hasImport: false,
   };
+}
+
+/**
+ * Detect concrete optional fields (spans) that the abstraction fails to expose.
+ *
+ * This is the guardrail for a gap the full/faithfulness checker CANNOT see: a
+ * concrete span apex is not in G's image, and `findFullnessViolations` only
+ * ranges over image objects, so a "forgotten variant" is invisible there. Here
+ * we check it directly: for every concrete span whose consumer is the image of
+ * some abstract object, some abstract span must map onto it. Any uncovered
+ * concrete apex means the Kan extension will auto-mint it and silently attach a
+ * bogus reference — exactly the class of bug this framework prevents.
+ *
+ * Returned as warning strings (not thrown): the author may legitimately choose
+ * not to expose a concrete optional field, so `compile()` surfaces these as
+ * warnings rather than hard errors.
+ */
+function spanCoverageDiagnostics(
+  domain: SchemaBlock,
+  codomain: SchemaBlock,
+  objectMap: Record<string, string>,
+): string[] {
+  const abstractSpans = computeSpans(domain, sumTable(domain));
+  const concreteSpans = computeSpans(codomain, sumTable(codomain));
+
+  // Concrete apexes that some abstract span maps onto.
+  const covered = new Set<string>();
+  for (const a of abstractSpans) {
+    const mapped = objectMap[a.apex];
+    if (mapped) covered.add(mapped);
+  }
+
+  // Concrete consumers that are in G's image (an abstract object maps to them).
+  const imageObjects = new Set(Object.values(objectMap));
+
+  const warnings: string[] = [];
+  for (const c of concreteSpans) {
+    if (!imageObjects.has(c.consumer)) continue; // consumer not exposed at all — not our concern
+    if (covered.has(c.apex)) continue;
+    warnings.push(
+      `optional field '${c.consumer}.${c.field}' (→ ${c.producer}) is not exposed by any ` +
+        `abstract variant. The Kan extension will auto-create it and attach a reference the ` +
+        `user never stated. Add a matching variant to the abstract sum, or omit the field from C.`,
+    );
+  }
+  return warnings;
 }
 
 /**
@@ -443,11 +527,12 @@ export function lowerSchemaFile(
  */
 function lowerSchemaObjects(schema: SchemaBlock, headerKey: 'CfnType' | 'Type'): any {
   const Objects: Record<string, any> = {};
+  const sumNames = sumTable(schema);
 
   // Resource objects.
   for (const obj of schema.objects) {
     const entry: any = { [headerKey]: obj.type };
-    const props = lowerProperties(obj);
+    const props = lowerProperties(obj, sumNames);
     if (Object.keys(props.Properties).length > 0) entry.Properties = props.Properties;
     if (Object.keys(props.Structure).length > 0) entry.Structure = props.Structure;
 
@@ -457,6 +542,27 @@ function lowerSchemaObjects(schema: SchemaBlock, headerKey: 'CfnType' | 'Type'):
     }
 
     Objects[obj.alias] = entry;
+  }
+
+  // Optional / sum-typed references desugar to spans: one synthetic, non-rendering
+  // apex object with `on` (→ consumer) and `to` (→ producer) legs. There is NO
+  // reverse morphism, so an optional reference is n:1 (the producer may be shared)
+  // rather than owned. The apex carries `Span` metadata for the renderer and the
+  // span-coverage check; `parseObjects` ignores it, so the category is unaffected.
+  for (const span of computeSpans(schema, sumNames)) {
+    Objects[span.apex] = {
+      Span: {
+        consumer: span.consumer,
+        producer: span.producer,
+        field: span.field,
+        via: span.via,
+        optional: span.optional,
+      },
+      Structure: {
+        on: { Source: span.consumer },
+        to: { Source: span.producer, ...(span.via ? { Via: span.via } : {}) },
+      },
+    };
   }
 
   // Explicitly declared value objects.
@@ -473,8 +579,7 @@ function lowerSchemaObjects(schema: SchemaBlock, headerKey: 'CfnType' | 'Type'):
 
   if (schema.equations.length > 0) {
     const targetOf = morphismTargets(schema);
-    const path = (groups: string[]) => expandMorphismPath(groups, targetOf).join(' . ');
-    result.Equations = schema.equations.map(eq => `${path(eq.lhs)} = ${path(eq.rhs)}`);
+    result.Equations = schema.equations.flatMap(eq => lowerEquation(eq, schema, sumNames, targetOf));
   }
 
   if (schema.macros.length > 0) {
@@ -488,10 +593,170 @@ function lowerSchemaObjects(schema: SchemaBlock, headerKey: 'CfnType' | 'Type'):
 }
 
 /**
+ * Lower one path equation, re-rooting it at a span apex when it traverses an
+ * optional/sum reference.
+ *
+ * A reference that desugars to a span is a *partial* function from its consumer,
+ * so an equation written through it — e.g. `Method.Authorizer.Api =
+ * Method.Route.Api` — is not a constraint on all Methods; it constrains only the
+ * apex elements (the methods that HAVE an authorizer). We express that by
+ * re-rooting every path at the apex:
+ *
+ *   - the side that traverses the span drops its `Consumer.field` hop and gains
+ *     an `apex.to` prefix (now starting at the producer);
+ *   - every other side (which starts at the consumer) gains an `apex.on` prefix.
+ *
+ * Both sides then run `apex → …` and are genuinely parallel. This is exactly the
+ * constraint the old PublicMethod/AuthorizedMethod split expressed by hand. See
+ * `core/test/span-equation.test.ts` for the verified semantics.
+ *
+ * Returns one or more raw equation strings (multiple only if a future sum-field
+ * traversal fans out; currently that case errors).
+ */
+function lowerEquation(
+  eq: EquationDecl,
+  schema: SchemaBlock,
+  sumNames: Map<string, string[]>,
+  targetOf: (name: string) => string | undefined,
+): string[] {
+  const spanFields = spanFieldMap(schema, sumNames);
+  const path = (groups: string[]) => expandMorphismPath(groups, targetOf).join(' . ');
+
+  const lhsHit = spanCrossing(eq.lhs, spanFields, targetOf);
+  const rhsHit = spanCrossing(eq.rhs, spanFields, targetOf);
+
+  // No span traversed → lower exactly as before.
+  if (!lhsHit && !rhsHit) {
+    return [`${path(eq.lhs)} = ${path(eq.rhs)}`];
+  }
+
+  // Both sides traversing a span must agree on which one (same apex root).
+  const keys = new Set([lhsHit?.key, rhsHit?.key].filter(Boolean) as string[]);
+  if (keys.size > 1) {
+    throw new Error(
+      `Equation traverses more than one optional/sum field (${[...keys].join(', ')}); ` +
+        `re-rooting is ambiguous. Split it into separate equations.`,
+    );
+  }
+  const key = [...keys][0];
+  const spans = spanFields.get(key)!;
+  if (spans.length > 1) {
+    throw new Error(
+      `Equation traverses sum-typed field '${key}' (${spans.length} variants); equations ` +
+        `through sum fields are not yet supported. Use an optional single reference, or ` +
+        `state the constraint per variant.`,
+    );
+  }
+  const span = spans[0];
+
+  const reroot = (groups: string[], hit: SpanCrossing | undefined): string => {
+    if (hit) {
+      // Traverses the span at its first hop: drop `Consumer.field`, prefix `apex.to`.
+      return [`${span.apex}.to`, ...continuationAfterSpan(groups, span, targetOf)].join(' . ');
+    }
+    // Does not traverse: must start at the consumer, prefix `apex.on`.
+    const rootObj = groups[0].split('.')[0];
+    if (rootObj !== span.consumer) {
+      throw new Error(
+        `Cannot re-root equation at span '${key}': the co-path starts at '${rootObj}', ` +
+          `not the field's consumer '${span.consumer}'.`,
+      );
+    }
+    return [`${span.apex}.on`, ...expandMorphismPath(groups, targetOf)].join(' . ');
+  };
+
+  return [`${reroot(eq.lhs, lhsHit)} = ${reroot(eq.rhs, rhsHit)}`];
+}
+
+/** A span traversal within one path: the span-field key, at hop index `at`. */
+interface SpanCrossing {
+  key: string;
+  at: number;
+}
+
+/** Index span fields by `Consumer.field` → the span(s) (one, or n for a sum). */
+function spanFieldMap(schema: SchemaBlock, sumNames: Map<string, string[]>): Map<string, Span[]> {
+  const m = new Map<string, Span[]>();
+  for (const s of computeSpans(schema, sumNames)) {
+    const key = `${s.consumer}.${s.field}`;
+    const list = m.get(key) ?? [];
+    list.push(s);
+    m.set(key, list);
+  }
+  return m;
+}
+
+/**
+ * Walk a path's hops and find where (if anywhere) it crosses a span field. A
+ * span must sit at the *root* hop (index 0) — an equation reaching an optional
+ * field only after several hops has no well-defined apex to re-root at, so a
+ * deeper crossing is a hard error rather than a silent mis-lowering.
+ */
+function spanCrossing(
+  groups: string[],
+  spanFields: Map<string, Span[]>,
+  targetOf: (name: string) => string | undefined,
+): SpanCrossing | undefined {
+  // Flatten the dotted groups into (object, property) hops, resolving each
+  // successive object via targetOf until we hit a span (which stops resolution).
+  let hopIndex = 0;
+  for (let g = 0; g < groups.length; g++) {
+    const segs = groups[g].split('.');
+    let obj = segs[0];
+    for (let i = 1; i < segs.length; i++) {
+      const key = `${obj}.${segs[i]}`;
+      if (spanFields.has(key)) {
+        if (hopIndex !== 0) {
+          throw new Error(
+            `Equation reaches optional/sum field '${key}' only after ${hopIndex} hop(s); ` +
+              `an equation may traverse such a field only at the start of a path.`,
+          );
+        }
+        return { key, at: hopIndex };
+      }
+      const next = targetOf(key);
+      if (next === undefined) return undefined; // unknown morphism; expander will report it
+      obj = next;
+      hopIndex++;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The remainder of a span-traversing path, expressed from the *producer*: drop
+ * the leading `Consumer.field` hop and re-express the tail starting at the span's
+ * producer object. Returns the expanded morphism-name list (empty if the path
+ * was exactly `Consumer.field`, i.e. the reference itself with no further hop).
+ */
+function continuationAfterSpan(
+  groups: string[],
+  span: Span,
+  targetOf: (name: string) => string | undefined,
+): string[] {
+  const firstSegs = groups[0].split('.');
+  const rest = firstSegs.slice(2); // drop [consumer, field]
+  if (rest.length > 0) {
+    const rewrittenFirst = [span.producer, ...rest].join('.');
+    return expandMorphismPath([rewrittenFirst, ...groups.slice(1)], targetOf);
+  }
+  // First group was just `Consumer.field`; any remaining *-groups already start
+  // at the producer and expand verbatim.
+  return groups.length > 1 ? expandMorphismPath(groups.slice(1), targetOf) : [];
+}
+
+/**
  * Lower an object's properties into `{ Properties, Structure, valueObjects }`.
  * `valueObjects` maps generated value-object name → value type.
+ *
+ * Optional references and sum-typed references produce NO property here — they
+ * are lifted out into spans by {@link computeSpans}. `isSpan` decides which
+ * properties those are; it must agree with `computeSpans`.
  */
-function lowerProperties(obj: ObjDecl): {
+function lowerProperties(
+  obj: ObjDecl,
+  sumNames: Map<string, string[]>,
+): {
   Properties: Record<string, any>;
   Structure: Record<string, any>;
   valueObjects: Map<string, string>;
@@ -519,10 +784,99 @@ function lowerProperties(obj: ObjDecl): {
     return entry;
   };
 
-  for (const p of obj.properties) Properties[p.name] = lowerOne(p);
-  for (const p of obj.structure) Structure[p.name] = lowerOne(p);
+  for (const p of obj.properties) {
+    if (isSpan(p, sumNames)) continue; // handled as a span, not a property
+    Properties[p.name] = lowerOne(p);
+  }
+  for (const p of obj.structure) {
+    if (isSpan(p, sumNames)) continue;
+    Structure[p.name] = lowerOne(p);
+  }
 
   return { Properties, Structure, valueObjects };
+}
+
+/**
+ * A single desugared span `consumer ←on— apex —to→ producer`, standing for one
+ * optional or one sum-variant reference. `field` is the surface property name
+ * (`TargetElement`); `apex` is its synthetic object name.
+ */
+interface Span {
+  apex: string;
+  consumer: string; // the object declaring the field (alias)
+  producer: string; // the referenced object (a variant, for sums)
+  field: string; // surface property name
+  via?: string;
+  optional: boolean; // false ⇒ mandatory sum (instance-level coverage required)
+}
+
+/** Build `sumName → variants`, verifying variants are declared objects. */
+function sumTable(schema: SchemaBlock): Map<string, string[]> {
+  const objectNames = new Set(schema.objects.map(o => o.alias));
+  const table = new Map<string, string[]>();
+  for (const s of schema.sums) {
+    for (const v of s.variants) {
+      if (!objectNames.has(v)) {
+        throw new Error(
+          `Sum type '${s.name}' lists variant '${v}', which is not a declared type in this schema.`,
+        );
+      }
+    }
+    table.set(s.name, s.variants);
+  }
+  return table;
+}
+
+/**
+ * True iff a property lowers to span(s) rather than a plain morphism: an
+ * optional reference, or any reference whose `Source` is a sum type (a sum is
+ * always per-variant partial, hence always spans — even when mandatory).
+ */
+function isSpan(p: PropDecl, sumNames: Map<string, string[]>): boolean {
+  if (p.source !== undefined && sumNames.has(p.source)) return true;
+  return p.optional === true && p.source !== undefined;
+}
+
+/**
+ * Compute every span the schema's optional/sum-typed references desugar to.
+ *
+ * Apex naming: `<Consumer>__<Field>` for an optional reference, and
+ * `<Consumer>__<Field>__<Variant>` for each variant of a sum. The double
+ * underscore keeps them out of the `Object.Property` morphism namespace and
+ * makes them legible in the fiber analyzer.
+ */
+function computeSpans(schema: SchemaBlock, sumNames: Map<string, string[]>): Span[] {
+  const spans: Span[] = [];
+  for (const obj of schema.objects) {
+    for (const p of [...obj.properties, ...obj.structure]) {
+      if (!isSpan(p, sumNames)) continue;
+      const via = p.via;
+      if (p.source !== undefined && sumNames.has(p.source)) {
+        // Sum-typed field: one span per variant.
+        for (const variant of sumNames.get(p.source)!) {
+          spans.push({
+            apex: `${obj.alias}__${p.name}__${variant}`,
+            consumer: obj.alias,
+            producer: variant,
+            field: p.name,
+            via,
+            optional: p.optional === true,
+          });
+        }
+      } else {
+        // Optional reference to a regular type.
+        spans.push({
+          apex: `${obj.alias}__${p.name}`,
+          consumer: obj.alias,
+          producer: p.source!,
+          field: p.name,
+          via,
+          optional: true,
+        });
+      }
+    }
+  }
+  return spans;
 }
 
 /** Map DSL macro fields (camelCase) to the raw macro keys parseMacros expects. */
@@ -602,6 +956,35 @@ function buildFunctor(
         objectMap[d] = d;
       }
     }
+
+    // Span-apex matching: an abstract span apex maps to the unique concrete
+    // apex with the same mapped endpoints. The author never writes this — they
+    // map the variant *objects* (e.g. Nat -> CfnNat) and the span pairing is
+    // forced by G(consumer)/G(producer). Legs (`on`/`to`) then infer via the
+    // same-name preference in the general morphism loop below.
+    const abstractSpans = computeSpans(domain, sumTable(domain));
+    const concreteSpans = computeSpans(codomain, sumTable(codomain));
+    for (const a of abstractSpans) {
+      if (a.apex in objectMap) continue; // an explicit mapping wins
+      const gConsumer = objectMap[a.consumer];
+      const gProducer = objectMap[a.producer];
+      if (gConsumer === undefined || gProducer === undefined) continue;
+      const matches = concreteSpans.filter(
+        c => c.consumer === gConsumer && c.producer === gProducer,
+      );
+      if (matches.length === 1) {
+        objectMap[a.apex] = matches[0].apex;
+      } else if (matches.length > 1) {
+        throw new Error(
+          `Ambiguous span mapping: abstract field '${a.consumer}.${a.field}' → '${a.producer}' ` +
+            `matches ${matches.length} optional fields on '${gConsumer}' (${matches
+              .map(m => m.field)
+              .join(', ')}). Disambiguate the concrete field on the variant.`,
+        );
+      }
+      // matches.length === 0 → the Functor constructor raises a clear
+      // "does not map object" error naming this apex.
+    }
   }
 
   if (codomain) {
@@ -647,7 +1030,7 @@ function inferMorphismImage(
   return undefined;
 }
 
-/** All object names declared in a schema block (resources, values, toggles). */
+/** All object names declared in a schema block (resources, values, toggles, span apexes). */
 function allObjectNames(schema: SchemaBlock): string[] {
   const names: string[] = [];
   for (const obj of schema.objects) {
@@ -657,6 +1040,7 @@ function allObjectNames(schema: SchemaBlock): string[] {
   }
   for (const v of schema.values) names.push(v.name);
   for (const t of schema.toggles) names.push(t);
+  for (const span of computeSpans(schema, sumTable(schema))) names.push(span.apex);
   return dedupe(names);
 }
 
@@ -665,14 +1049,21 @@ function allObjectNames(schema: SchemaBlock): string[] {
  * naming `desugarInlineMorphisms` (schema-parser.ts) uses: `Alias.Property`
  * for every property whose Source/Value references an object. `SameAs` and
  * `Default` properties do not generate morphisms.
+ *
+ * Optional/sum-typed properties generate NO morphism from the consumer (they are
+ * erased); instead each desugared span contributes its two legs `<apex>.on` and
+ * `<apex>.to`. This mirrors the raw Objects `lowerSchemaObjects` emits, so
+ * functor inference and the built category agree.
  */
 function inferMorphisms(schema: SchemaBlock): Morph[] {
+  const sumNames = sumTable(schema);
   const objectNames = new Set(allObjectNames(schema));
   const morphs: Morph[] = [];
 
   for (const obj of schema.objects) {
     const consider = [...obj.properties, ...obj.structure];
     for (const p of consider) {
+      if (isSpan(p, sumNames)) continue; // erased — the span's legs stand in
       let target: string | undefined;
       if (p.value !== undefined) {
         target = p.name; // value object named after the property
@@ -685,6 +1076,12 @@ function inferMorphisms(schema: SchemaBlock): Morph[] {
       }
     }
   }
+
+  for (const span of computeSpans(schema, sumNames)) {
+    morphs.push({ name: `${span.apex}.on`, source: span.apex, target: span.consumer });
+    morphs.push({ name: `${span.apex}.to`, source: span.apex, target: span.producer });
+  }
+
   return morphs;
 }
 

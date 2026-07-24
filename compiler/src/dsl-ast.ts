@@ -24,8 +24,20 @@ export interface SchemaBlock {
   objects: ObjDecl[];
   values: ValueDecl[];
   toggles: string[]; // toggle object names
+  sums: SumDecl[]; // sum-type declarations (`data T = A | B | …`)
   equations: EquationDecl[];
   macros: MacroDecl[];
+}
+
+/**
+ * A sum type `data T = V1 | V2 | …`. `T` is a *compile-time-only* name: it is
+ * erased during lowering and never becomes a category object. A property whose
+ * `Source` is a sum type desugars to one span per variant (see `PropDecl`).
+ */
+export interface SumDecl {
+  kind: 'sum';
+  name: string;
+  variants: string[]; // object names (existing resource types)
 }
 
 export interface ObjDecl {
@@ -51,6 +63,13 @@ export interface PropDecl {
   default?: any; // `Default: <lit>`   → a literal constant rendered as-is
   sameAs?: string; // `SameAs: Sibling` → shares another property's morphism
   via?: string; // `Via: Ref` | `Via: GetAtt.Attr`
+  /**
+   * Marked optional (`Name? { … }` or `Name?: T`). An optional reference lowers
+   * to a *span* `Source ←on— apex —to→ target` (monic `on`, and deliberately NO
+   * reverse morphism, so the target may be shared: an optional ref is n:1, not
+   * owned). A mandatory reference stays a plain morphism.
+   */
+  optional?: boolean;
 }
 
 export interface ValueDecl {

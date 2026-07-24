@@ -6,6 +6,20 @@ export interface ObjectDef {
   cfnType?: string;
   valueType?: string;
   properties?: Record<string, PropertyDef>;
+  /**
+   * Present iff this object is a synthetic span apex (a desugared optional/sum
+   * reference). Carries what the renderer needs to emit the erased field:
+   * `consumer.field = Ref/GetAtt(producer)`. See schema-dsl.ts `computeSpans`.
+   */
+  span?: SpanMeta;
+}
+
+export interface SpanMeta {
+  consumer: string; // object declaring the field
+  producer: string; // referenced object (a variant, for sums)
+  field: string; // surface property name to render
+  via?: string; // Ref (default) / GetAtt.Attr
+  optional: boolean;
 }
 
 export interface PropertyDef {
@@ -36,6 +50,13 @@ export interface ParsedSchema {
    * `compiler.ts`.
    */
   expectedFullness?: Array<{ path: string[]; reason?: string }>;
+  /**
+   * Warnings about concrete optional fields (spans) not exposed by any abstract
+   * variant — a gap the full/faithfulness check cannot see (the apex is outside
+   * G's image). Computed during lowering; `compile()` routes these to the
+   * diagnostic sink. See `spanCoverageDiagnostics` in schema-dsl.ts.
+   */
+  spanCoverage?: string[];
   /**
    * Intermediate layers in a multi-hop chain (outermost first).
    * Empty for single-hop schemas.
@@ -168,6 +189,7 @@ export function parseSchema(raw: any): ParsedSchema {
     },
     macros,
     expectedFullness: parseExpectedFullness(raw.ExpectedFullness),
+    spanCoverage: raw.SpanCoverage ?? [],
   };
 }
 
@@ -197,6 +219,7 @@ function parseObjects(raw: Record<string, any>): Map<string, ObjectDef & { type?
     if (def.CfnType) obj.cfnType = def.CfnType;
     if (def.ValueType) obj.valueType = def.ValueType;
     if (def.Type) (obj as any).type = def.Type;
+    if (def.Span) obj.span = def.Span;
     if (def.Properties) {
       obj.properties = {};
       for (const [propName, propDef] of Object.entries(def.Properties)) {

@@ -55,6 +55,7 @@ export function compile(
 
   if (!options.skipFaithfulnessCheck) {
     reportFaithfulness(G, C, schema.expectedFullness ?? [], options.onDiagnostic);
+    reportSpanCoverage(schema.spanCoverage ?? [], options.onDiagnostic);
   }
 
   // Build the instance I: D → Set from the abstract resources.
@@ -75,9 +76,7 @@ export function compile(
     const families = result.objects[objName].families;
 
     for (let i = 0; i < elements.length; i++) {
-      const logicalId = elements.length === 1
-        ? objName
-        : `${objName}${i}`;
+      const logicalId = logicalIdOf(objName, i, elements.length);
 
       const properties = renderProperties(
         objDef,
@@ -95,10 +94,57 @@ export function compile(
     }
   }
 
+  // Second pass: inject optional/sum fields off their span apexes. A C-side apex
+  // renders no resource of its own; instead each apex element adds its erased
+  // field to the consumer resource as `field: Ref/GetAtt(producer)`. Consumers
+  // without an apex element get no field — optionality, realized in the output.
+  injectSpanFields(schema, result, cfnResources);
+
   return {
     AWSTemplateFormatVersion: '2010-09-09',
     Resources: cfnResources,
   };
+}
+
+/** The logical id the render loop assigns to element `i` of a C-object. */
+function logicalIdOf(objName: string, index: number, count: number): string {
+  return count === 1 ? objName : `${objName}${index}`;
+}
+
+/**
+ * Inject each span apex's field into its consumer resource.
+ *
+ * For every C-object carrying `span` metadata, walk its apex elements: `on`
+ * gives the consumer element (which resource gets the field), `to` gives the
+ * producer element (what it references). We emit `span.field = Ref/GetAtt(...)`
+ * on the consumer's Properties. Because the field lives only where an apex
+ * element exists, absent references simply never appear.
+ */
+function injectSpanFields(
+  schema: ParsedSchema,
+  result: any,
+  cfnResources: Record<string, CfnResource>,
+): void {
+  for (const [apexName, objDef] of schema.original.objects) {
+    const span = objDef.span;
+    if (!span) continue;
+
+    const consumerCount = result.objects[span.consumer].elements.length;
+    const producerCount = result.objects[span.producer].elements.length;
+
+    for (const apexIdx of result.objects[apexName].elements) {
+      const consumerIdx = result.instance.applyMorphism(`${apexName}.on`, apexIdx);
+      const producerIdx = result.instance.applyMorphism(`${apexName}.to`, apexIdx);
+
+      const consumerId = logicalIdOf(span.consumer, consumerIdx, consumerCount);
+      const producerId = logicalIdOf(span.producer, producerIdx, producerCount);
+
+      const target = cfnResources[consumerId];
+      if (!target) continue; // consumer not rendered (e.g. filtered) — nothing to attach to
+      target.Properties = target.Properties ?? {};
+      target.Properties[span.field] = renderReference(producerId, span.via);
+    }
+  }
 }
 
 /**
@@ -170,6 +216,20 @@ function reportFaithfulness(
   const filtered = { ...report, fullnessViolations: unexpected };
   for (const line of formatFullFaithfulReport(filtered)) {
     sink('  ' + line);
+  }
+}
+
+/**
+ * Emit span-coverage warnings: concrete optional fields (spans) the abstraction
+ * fails to expose. Distinct from the fullness check — a dangling concrete apex
+ * is outside G's image, so `checkFullyFaithful` never sees it (see
+ * `spanCoverageDiagnostics` in schema-dsl.ts). Warnings, not errors: an author
+ * may deliberately hide a concrete optional field.
+ */
+function reportSpanCoverage(warnings: string[], onDiagnostic?: (message: string) => void): void {
+  const sink = onDiagnostic ?? (msg => console.warn(msg));
+  for (const w of warnings) {
+    sink(`warning: ${w}`);
   }
 }
 
@@ -251,7 +311,64 @@ function buildSets(
     }
   }
 
+  // Span apexes: one apex element per resource that sets the optional/sum field
+  // (and, for a sum, whose referenced resource has the variant's type). Absent
+  // fields mint no apex element — that is precisely how optionality is encoded.
+  for (const [apex, elems] of computeSpanElements(schema, template)) {
+    sets[apex] = elems.map(e => e.id);
+  }
+
   return sets;
+}
+
+/** One minted apex element: `on` = consumer logicalId, `to` = producer logicalId. */
+interface SpanElement {
+  id: string;
+  on: string;
+  to: string;
+}
+
+/**
+ * Mint the elements of every span apex from the abstract template.
+ *
+ * The user authors an optional/sum field exactly like a plain reference —
+ * `Authorizer: LambdaAuth` — so we read that value off the consumer resource. A
+ * present value yields one apex element (`on` → the consumer, `to` → the
+ * referenced producer); an absent value yields none. For a sum, the referenced
+ * resource's type selects which variant apex the element lands in.
+ */
+function computeSpanElements(
+  schema: ParsedSchema,
+  template: AbstractTemplate,
+): Map<string, SpanElement[]> {
+  const result = new Map<string, SpanElement[]>();
+  const byId = new Map(template.resources.map(r => [r.logicalId, r]));
+
+  for (const [apexName, objDef] of schema.simplified.objects) {
+    const span = objDef.span;
+    if (!span) continue;
+
+    const elems: SpanElement[] = [];
+    for (const r of template.resources) {
+      if (findObjectForType(schema, r.type) !== span.consumer) continue;
+      const value = r.properties[span.field];
+      if (value === undefined) continue; // optional absent → no apex element
+
+      const target = byId.get(value);
+      if (!target) {
+        throw new Error(
+          `Resource "${r.logicalId}" field "${span.field}" references unknown resource "${value}".`,
+        );
+      }
+      // For a sum, only the variant matching the referenced type applies here.
+      if (findObjectForType(schema, target.type) !== span.producer) continue;
+
+      elems.push({ id: `${apexName}#${r.logicalId}`, on: r.logicalId, to: value });
+    }
+    result.set(apexName, elems);
+  }
+
+  return result;
 }
 
 /**
@@ -264,7 +381,26 @@ function buildFunctions(
 ): Record<string, (x: any) => any> {
   const functions: Record<string, (x: any) => any> = {};
 
+  // Span-apex legs (`<apex>.on`, `<apex>.to`) map each minted apex element to
+  // its consumer / producer logicalId. Precompute per apex so both legs share it.
+  const spanElems = computeSpanElements(schema, template);
+  const elemById = new Map<string, SpanElement>();
+  for (const elems of spanElems.values()) {
+    for (const e of elems) elemById.set(e.id, e);
+  }
+
   for (const morphism of schema.simplified.categorySpec.morphisms) {
+    const sourceDef = schema.simplified.objects.get(morphism.source);
+    if (sourceDef?.span) {
+      // morphism.name is `<apex>.on` or `<apex>.to`.
+      const leg = morphism.name.endsWith('.to') ? 'to' : 'on';
+      functions[morphism.name] = (apexId: any) => {
+        const e = elemById.get(apexId);
+        return e ? e[leg] : sets[morphism.target][0];
+      };
+      continue;
+    }
+
     const sourceObj = findObjectForType(schema, getTypeForObject(schema, morphism.source));
     if (!sourceObj) {
       // Morphism from a non-resource object — identity or constant

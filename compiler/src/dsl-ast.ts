@@ -104,6 +104,29 @@ export interface MapBlock {
    * informational note. New, undeclared gaps still warn.
    */
   expectedFullness: Array<{ path: string[]; reason?: string }>;
+  /**
+   * Cardinality opinions the abstraction imposes on the *codomain* C₀. These are
+   * localizations — they invert an existing C-morphism, adding its formal inverse
+   * so the right Kan extension re-indexes a fiber (e.g. forcing route tables 1:1
+   * with subnets) without a hand-authored structural arrow in C₀. The opinion
+   * lives here, in the abstraction, not in the auto-generated ground-truth C₀.
+   */
+  constraints: ConstrainDecl[];
+}
+
+/**
+ * A cardinality opinion on the codomain, lowered to a localization of C₀.
+ *
+ *   - `invert  <Obj.Prop>` — assert the single C-morphism `Obj.Prop` is iso.
+ *     Emits a formal inverse generator plus the two identity equations.
+ *   - `bijection <Obj>`    — assert an association object's two reference legs
+ *     are both iso (a 1:1 pairing). Desugars to an `invert` on each leg.
+ *
+ * `target` is the morphism `Obj.Prop` (invert) or the object `Obj` (bijection).
+ */
+export interface ConstrainDecl {
+  kind: 'invert' | 'bijection';
+  target: string;
 }
 
 // ============================================================================

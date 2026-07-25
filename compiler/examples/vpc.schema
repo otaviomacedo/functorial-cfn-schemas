@@ -45,23 +45,14 @@ schema Ec2 {
 
     type AWS::EC2::RouteTable {
         VpcId { Source: VPC }
-        structure {
-            Subnet { Source: PublicSubnet }
-        }
     } alias PublicRT
 
     type AWS::EC2::RouteTable {
         VpcId { Source: VPC }
-        structure {
-            Subnet { Source: PrivateSubnet }
-        }
     } alias PrivateRT
 
     type AWS::EC2::RouteTable {
         VpcId { Source: VPC }
-        structure {
-            Subnet { Source: IsolatedSubnet }
-        }
     } alias IsolatedRT
 
     type AWS::EC2::SubnetRouteTableAssociation {
@@ -136,11 +127,6 @@ schema Ec2 {
 
     toggle IgwToggle
     toggle VpnToggle
-
-    // The RT association pairs the RT with the subnet it structurally belongs to.
-    PublicRTAssoc.RouteTableId.Subnet = PublicRTAssoc.SubnetId
-    PrivateRTAssoc.RouteTableId.Subnet = PrivateRTAssoc.SubnetId
-    IsolatedRTAssoc.RouteTableId.Subnet = IsolatedRTAssoc.SubnetId
 }
 
 // ============================================================================
@@ -208,4 +194,18 @@ map Vpc -> Ec2 {
     IsolatedTier.Network -> IsolatedSubnet.VpcId
     NatSlot.Subnet       -> NatGateway.SubnetId
     Endpoint.Network     -> GatewayEndpoint.VpcId
+
+    // Opinion: each route table serves exactly one subnet. Inverting the
+    // association's RouteTableId leg gives a derived RouteTable→Subnet arrow, so
+    // the right Kan extension mints one route table per subnet. The opinion
+    // lives here, in the abstraction — not as a fake structural morphism baked
+    // into the ground-truth Ec2 category.
+    //
+    // Only the RouteTableId leg is inverted, not both: RouteTable is outside G's
+    // image, so the derived arrow leaks no unstated reference. Inverting SubnetId
+    // too (i.e. `bijection`) would add Subnet→RouteTable, and Subnet *is* in the
+    // image, which would make G non-full.
+    invert PublicRTAssoc.RouteTableId
+    invert PrivateRTAssoc.RouteTableId
+    invert IsolatedRTAssoc.RouteTableId
 }

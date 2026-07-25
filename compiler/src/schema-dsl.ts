@@ -26,6 +26,7 @@ import {
   EquationDecl,
   MacroDecl,
   MapBlock,
+  ConstrainDecl,
 } from './dsl-ast';
 import { tokenize, TokenStream } from './lexer';
 
@@ -307,6 +308,7 @@ function parseMapBlock(ts: TokenStream): MapBlock {
   const objectMappings: Array<{ from: string; to: string }> = [];
   const morphismMappings: Array<{ from: string; to: string[] }> = [];
   const expectedFullness: Array<{ path: string[]; reason?: string }> = [];
+  const constraints: ConstrainDecl[] = [];
 
   while (!ts.isPunct('}')) {
     if (ts.atEof()) throw ts.error("Unterminated 'map' block");
@@ -329,6 +331,23 @@ function parseMapBlock(ts: TokenStream): MapBlock {
       continue;
     }
 
+    // `invert <Obj.Prop>` / `bijection <Obj>` — a cardinality opinion on C₀,
+    // lowered to a localization (formal inverse + id equations). See ConstrainDecl.
+    if (ts.isKeyword('invert')) {
+      ts.next();
+      const obj = ts.expectIdent().value;
+      ts.expectPunct('.');
+      const prop = ts.expectIdent().value;
+      constraints.push({ kind: 'invert', target: `${obj}.${prop}` });
+      continue;
+    }
+    if (ts.isKeyword('bijection')) {
+      ts.next();
+      const obj = ts.expectIdent().value;
+      constraints.push({ kind: 'bijection', target: obj });
+      continue;
+    }
+
     // LHS is either `Ident` (object) or `Ident.Ident` (morphism).
     const lhsObj = ts.expectIdent().value;
     if (ts.isPunct('.')) {
@@ -344,7 +363,7 @@ function parseMapBlock(ts: TokenStream): MapBlock {
     }
   }
   ts.expectPunct('}');
-  return { kind: 'map', from, to, objectMappings, morphismMappings, expectedFullness };
+  return { kind: 'map', from, to, objectMappings, morphismMappings, expectedFullness, constraints };
 }
 
 /**
@@ -463,6 +482,10 @@ export function lowerSchemaFile(
   const simplified = lowerSchemaObjects(domain, 'Type');
   const functor = buildFunctor(map, domain, codomainLocal);
 
+  // Localizations the abstraction imposes on C₀ (`invert` / `bijection`): fold
+  // their formal inverses and identity equations into the codomain's raw shape.
+  applyConstraints(map.constraints, codomainLocal, original);
+
   return {
     raw: {
       OriginalSchema: original,
@@ -518,6 +541,85 @@ function spanCoverageDiagnostics(
     );
   }
   return warnings;
+}
+
+/**
+ * Fold the abstraction's cardinality opinions into the lowered codomain.
+ *
+ * Each `invert m` (m: A→B) is a *localization* of C₀: we add a formal inverse
+ * generator `m⁻¹: B→A` and the two identity equations `m·m⁻¹ = id_A`,
+ * `m⁻¹·m = id_B`. That is enough for the right Kan extension to re-index a fiber
+ * through the now-invertible arrow — e.g. minting one route table per subnet —
+ * with no hand-drawn structural morphism polluting the ground-truth C₀.
+ *
+ * `bijection <Obj>` is sugar: invert every reference leg of the association
+ * object `Obj` (each morphism out of it whose target is a resource type). For a
+ * SubnetRouteTableAssociation that inverts both `SubnetId` and `RouteTableId`,
+ * asserting the 1:1 pairing the old fake `RouteTable→Subnet` arrow encoded.
+ *
+ * The inverse generators and equations are appended to the codomain's raw
+ * `Morphisms` / `Equations` — the same slots `parseSchema` already consumes — so
+ * the categorical core sees a localized C and needs no change. Mutates `raw`.
+ */
+function applyConstraints(
+  constraints: ConstrainDecl[],
+  codomain: SchemaBlock,
+  raw: any,
+): void {
+  if (constraints.length === 0) return;
+
+  const targetOf = morphismTargets(codomain);
+  const resourceAliases = new Set(codomain.objects.map(o => o.alias));
+
+  // Expand each declaration to the concrete morphism name(s) to invert.
+  const toInvert: string[] = [];
+  for (const c of constraints) {
+    if (c.kind === 'invert') {
+      toInvert.push(c.target);
+    } else {
+      // bijection: every reference leg (→ a resource) out of the object.
+      const legs = inferMorphisms(codomain).filter(
+        m => m.source === c.target && resourceAliases.has(m.target),
+      );
+      if (legs.length === 0) {
+        throw new Error(
+          `bijection '${c.target}': no reference legs found on that object (it must be ` +
+            `an association type with Source references to resources).`,
+        );
+      }
+      toInvert.push(...legs.map(m => m.name));
+    }
+  }
+
+  const morphisms: Record<string, string> = raw.Morphisms ?? {};
+  const equations: string[] = raw.Equations ?? [];
+  const seen = new Set<string>();
+
+  for (const m of toInvert) {
+    if (seen.has(m)) continue; // idempotent: inverting a leg twice is a no-op
+    seen.add(m);
+
+    const source = m.slice(0, m.indexOf('.')); // morphism name is `Alias.Prop`
+    const target = targetOf(m);
+    if (source === '' || target === undefined) {
+      throw new Error(
+        `invert '${m}': not a known morphism in codomain '${codomain.name}'. ` +
+          `Expected an existing reference of the form Object.Property.`,
+      );
+    }
+
+    // Formal inverse m⁻¹: target → source. Bare name (no dot) so it never
+    // collides with an `Object.Property` morphism and expands atomically.
+    const inv = `inv__${source}__${m.slice(m.indexOf('.') + 1)}`;
+    morphisms[inv] = `${target} -> ${source}`;
+
+    // m · m⁻¹ = id_source   and   m⁻¹ · m = id_target   (empty RHS = identity).
+    equations.push(`${m} . ${inv} = `);
+    equations.push(`${inv} . ${m} = `);
+  }
+
+  raw.Morphisms = morphisms;
+  raw.Equations = equations;
 }
 
 /**

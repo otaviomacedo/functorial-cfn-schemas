@@ -31,7 +31,8 @@ export type Punct =
   | '->'
   | '='
   | '?'
-  | '|';
+  | '|'
+  | '~';
 
 export interface Token {
   type: TokenType;
@@ -167,7 +168,7 @@ export function tokenize(source: string): Token[] {
     }
 
     // Single-character punctuation
-    if ('{}[]():,.*=?|'.includes(ch)) {
+    if ('{}[]():,.*=?|~'.includes(ch)) {
       advance();
       tokens.push({ type: 'punct', value: ch, line: startLine, col: startCol });
       continue;

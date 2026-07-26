@@ -117,3 +117,61 @@ describe('bijection is sugar for inverting both reference legs', () => {
     expect(C.morphisms.has('inv__Assoc__SubnetId')).toBe(true);
   });
 });
+
+describe('~ marks an inverted morphism inside a functor path', () => {
+  // A D-morphism whose image traverses the inverse: RT → Sub, realized in C as
+  // RouteTable → (RouteTableId)⁻¹ → Assoc → SubnetId → Subnet.
+  const SRC_PATH = `
+    schema Ec2 {
+      type AWS::EC2::VPC { } alias VPC
+      type AWS::EC2::Subnet { VpcId { Source: VPC } } alias Subnet
+      type AWS::EC2::RouteTable { VpcId { Source: VPC } } alias RouteTable
+      type AWS::EC2::SubnetRouteTableAssociation {
+        SubnetId     { Source: Subnet }
+        RouteTableId { Source: RouteTable }
+      } alias Assoc
+    }
+
+    schema Vpc {
+      type Functorial::VPC::Network { } alias Network
+      type Functorial::VPC::Tier { Network { Source: Network } } alias Tier
+      type Functorial::VPC::RouteTable {
+        Network { Source: Network }
+        Tier    { Source: Tier }
+      } alias RT
+    }
+
+    map Vpc -> Ec2 {
+      Network -> VPC
+      Tier    -> Subnet
+      RT      -> RouteTable
+      Tier.Network -> Subnet.VpcId
+      RT.Network   -> RouteTable.VpcId
+      RT.Tier      -> ~Assoc.RouteTableId * Assoc.SubnetId
+
+      invert Assoc.RouteTableId
+    }
+  `;
+
+  test('~ resolves to the generated inverse name in the functor image', () => {
+    const { parsed } = build(SRC_PATH);
+    expect(parsed.functor.onMorphisms['RT.Tier']).toEqual([
+      'inv__Assoc__RouteTableId',
+      'Assoc.SubnetId',
+    ]);
+  });
+
+  test('the built functor validates (path is composable end to end)', () => {
+    // build() constructs the Functor, which validates source/target of every
+    // mapped path — so a bad inverse endpoint would throw here.
+    expect(() => build(SRC_PATH)).not.toThrow();
+  });
+
+  test('~ on a multi-hop chain is rejected', () => {
+    const bad = SRC_PATH.replace(
+      '~Assoc.RouteTableId',
+      '~Assoc.RouteTableId.SubnetId',
+    );
+    expect(() => build(bad)).toThrow(/single Object.Property morphism/);
+  });
+});

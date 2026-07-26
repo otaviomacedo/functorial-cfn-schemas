@@ -148,6 +148,19 @@ const cyStyle = [
     style: { 'line-color': '#c8763a', 'target-arrow-color': '#c8763a', 'line-opacity': 0.9, width: 1.6 },
   },
   {
+    // Derived edges are formal inverses added by an `invert`/`bijection`
+    // cardinality opinion — a real C-morphism, but an imposed opinion rather
+    // than a service-API reference. Render dashed + violet so it reads as such.
+    selector: 'edge[kind="c"][?derived]',
+    style: {
+      'line-color': '#a98eda',
+      'target-arrow-color': '#a98eda',
+      'line-style': 'dashed',
+      'line-opacity': 0.9,
+      width: 1.4,
+    },
+  },
+  {
     selector: 'edge[kind="g"]',
     style: {
       'line-color': '#6ea8fe',
@@ -296,6 +309,7 @@ function renderLegend(model) {
       <div class="row">dashed border = singleton</div>
       <div class="row"><span class="swatch" style="background:#c8763a"></span>cross-fiber ref</div>
       <div class="row"><span class="swatch" style="background:#6ea8fe"></span>G: d → G(d)</div>
+      <div class="row"><span class="swatch" style="background:#a98eda"></span>derived (invert opinion)</div>
     </div>`;
   legendEl.querySelectorAll('.row[data-fiber]').forEach((row) => {
     row.onmouseenter = () => highlightFiber(row.dataset.fiber);

@@ -19,14 +19,24 @@ schema CloudFormation {
 
   type AWS::EC2::RouteTable {
     VpcId { Source: VPC }
-    structure {
-      Subnet { Source: Subnet }
-    }
   } alias RouteTable
+
+  type AWS::EC2::NatGateway {
+    SubnetId { Source: Subnet }
+    VpcId    { Source: VPC }
+  } alias NatGateway
+
+  type AWS::EC2::InternetGateway {} alias InternetGateway
+
+  type AWS::EC2::Route {
+    NatGatewayId? { Source: NatGateway }
+    GatewayId?    { Source: InternetGateway }
+    RouteTable    { Source: RouteTable }
+  } alias Route
 
   RouteTableAssociation.RouteTableId.VpcId = RouteTableAssociation.SubnetId.VpcId
   RouteTableAssociation.SubnetId = RouteTableAssociation.RouteTableId.Subnet
-  RouteTable.Subnet.VpcId = RouteTable.VpcId
+  NatGateway.VpcId = NatGateway.SubnetId.VpcId
 }
 
 schema Abstract {
@@ -42,11 +52,32 @@ schema Abstract {
     AvailabilityZone { Value: String }
     Network          { Source: Network }
   } alias Subnet
+
+  type Functorial::VPC::NatGateway {
+    SubnetId { Source: Subnet }
+    Network    { Source: Network }
+  } alias NatGateway
+
+  NatGateway.Network = NatGateway.SubnetId.Network
+
+  type Functorial::VPC::InternetGateway {} alias InternetGateway
+
+  data RouteTarget = NatGateway | InternetGateway
+
+  type Functorial::VPC::Route {
+    Target  { Source: RouteTarget }
+    Subnet  { Source: Subnet }
+  } alias Route
+
 }
 
 map Abstract -> CloudFormation {
-  Network      -> VPC
-  Subnet       -> Subnet
+  Network         -> VPC
+  Subnet          -> Subnet
+  NatGateway      -> NatGateway
+  InternetGateway -> InternetGateway
+  Route           -> Route
+
 
   // Only the mappings that aren't inferable by same-name need listing.
   Network.DnsHostnames -> VPC.EnableDnsHostnames
@@ -54,4 +85,12 @@ map Abstract -> CloudFormation {
   Network.Tenancy      -> VPC.InstanceTenancy
 
   Subnet.Network       -> Subnet.VpcId
+
+  // Route → Subnet, via the route table and the (now invertible) association:
+  // Route.RouteTable * (RouteTableId)⁻¹ * SubnetId. The `~` marks the inverse.
+  Route.Subnet         -> Route.RouteTable * ~RouteTableAssociation.RouteTableId * RouteTableAssociation.SubnetId
+
+  // Invert only the RouteTableId leg (source RouteTable is outside G's image),
+  // not both — `bijection` would add a Subnet→… arrow and break fullness.
+  invert RouteTableAssociation.RouteTableId
 }

@@ -276,6 +276,13 @@ function parseEquation(ts: TokenStream): EquationDecl {
  * lowering step expands multi-hop chains into individual morphism names once
  * the object/morphism definitions (and hence each hop's target) are known —
  * see {@link expandMorphismPath}.
+ *
+ * A factor may be prefixed with `~` to denote the *inverse* of a morphism made
+ * invertible by an `invert`/`bijection` opinion: `~Assoc.RouteTableId` is the
+ * formal inverse `RouteTable → Assoc`. You reference the forward morphism you
+ * already know; the expander resolves it to the generated inverse name. Because
+ * an inverse reverses endpoints, `~` applies only to a single `Object.Property`
+ * factor (not a multi-hop dot chain).
  */
 function parseMorphismPath(ts: TokenStream): string[] {
   const groups: string[] = [parseChain(ts)];
@@ -286,8 +293,17 @@ function parseMorphismPath(ts: TokenStream): string[] {
   return groups;
 }
 
-/** A dot chain `Object.Prop(.Prop)*`, returned as its raw dotted string. */
+/**
+ * A dot chain `Object.Prop(.Prop)*`, returned as its raw dotted string. A
+ * leading `~` (inverse marker) is preserved on the returned string for the
+ * expander to interpret; see {@link parseMorphismPath}.
+ */
 function parseChain(ts: TokenStream): string {
+  let prefix = '';
+  if (ts.isPunct('~')) {
+    ts.next();
+    prefix = '~';
+  }
   const parts: string[] = [ts.expectIdent().value];
   ts.expectPunct('.');
   parts.push(ts.expectIdent().value);
@@ -295,7 +311,7 @@ function parseChain(ts: TokenStream): string {
     ts.next();
     parts.push(ts.expectIdent().value);
   }
-  return parts.join('.');
+  return prefix + parts.join('.');
 }
 
 function parseMapBlock(ts: TokenStream): MapBlock {
@@ -610,7 +626,7 @@ function applyConstraints(
 
     // Formal inverse m⁻¹: target → source. Bare name (no dot) so it never
     // collides with an `Object.Property` morphism and expands atomically.
-    const inv = `inv__${source}__${m.slice(m.indexOf('.') + 1)}`;
+    const inv = inverseMorphismName(source, m.slice(m.indexOf('.') + 1));
     morphisms[inv] = `${target} -> ${source}`;
 
     // m · m⁻¹ = id_source   and   m⁻¹ · m = id_target   (empty RHS = identity).
@@ -620,6 +636,17 @@ function applyConstraints(
 
   raw.Morphisms = morphisms;
   raw.Equations = equations;
+}
+
+/**
+ * The generated name for the formal inverse of the morphism `Object.Property`
+ * (created by an `invert`/`bijection` opinion). Bare (no dot) so it stays out of
+ * the `Object.Property` namespace. Shared by {@link applyConstraints} (which
+ * emits the generator) and {@link expandMorphismPath} (which resolves a `~`
+ * marker to it) so the two never drift.
+ */
+function inverseMorphismName(object: string, property: string): string {
+  return `inv__${object}__${property}`;
 }
 
 /**
@@ -1194,10 +1221,28 @@ function inferMorphisms(schema: SchemaBlock): Morph[] {
  * morphism name to its target object; it is consulted only for chains longer
  * than a single hop, so plain `A.b` groups (and explicit `*` compositions of
  * them) need no schema context and always expand verbatim.
+ *
+ * A `~`-prefixed group is the inverse of a single `Object.Property` morphism
+ * (made invertible by an `invert`/`bijection` opinion); it expands to that
+ * morphism's generated inverse name — see {@link inverseMorphismName}. The `~`
+ * marker may not appear on a multi-hop chain, since an inverse reverses
+ * endpoints and there is no well-defined chain to follow.
  */
 function expandMorphismPath(groups: string[], targetOf: (name: string) => string | undefined): string[] {
   const out: string[] = [];
   for (const group of groups) {
+    if (group.startsWith('~')) {
+      const forward = group.slice(1);
+      const parts = forward.split('.');
+      if (parts.length !== 2) {
+        throw new Error(
+          `Inverse marker '~' applies to a single Object.Property morphism, but got ` +
+            `'~${forward}'. Write the inverse of one hop, e.g. '~Assoc.RouteTableId'.`,
+        );
+      }
+      out.push(inverseMorphismName(parts[0], parts[1]));
+      continue;
+    }
     const parts = group.split('.');
     let obj = parts[0];
     for (let i = 1; i < parts.length; i++) {

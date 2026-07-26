@@ -43,6 +43,13 @@ export interface GraphEdge {
   label?: string;
   /** For 'c' edges: true when it crosses between two fibers. */
   crossFiber?: boolean;
+  /**
+   * True for a synthetic morphism the schema did not author directly — currently
+   * the formal inverse added by an `invert`/`bijection` cardinality opinion. It
+   * is a real morphism in C (it drives the fiber), but it represents an imposed
+   * opinion, not a service-API reference, so the frontend renders it distinctly.
+   */
+  derived?: boolean;
 }
 
 export interface GraphModel {
@@ -151,6 +158,7 @@ export function buildGraphModel(schema: SchemaAnalysis): GraphModel {
       kind: 'c',
       label: shortMorphism(m.name),
       crossFiber: fiberOf(m.source) !== fiberOf(m.target),
+      ...(isInverse(m.name) ? { derived: true } : {}),
     });
   }
 
@@ -190,8 +198,26 @@ function fiberNodeId(name: string): string {
   return `fiber/${name}`;
 }
 
-/** "PublicSubnet.VpcId" → "VpcId" for a compact edge label. */
+/**
+ * True for a synthetic formal-inverse morphism emitted by an `invert`/`bijection`
+ * opinion (see `applyConstraints` in schema-dsl.ts). Its name is
+ * `inv__<Object>__<Property>`, deliberately dot-free so it never collides with
+ * an authored `Object.Property` morphism.
+ */
+function isInverse(name: string): boolean {
+  return name.startsWith('inv__');
+}
+
+/**
+ * Compact edge label. Authored morphisms `PublicSubnet.VpcId` → `VpcId`; a
+ * formal inverse `inv__Assoc__RouteTableId` → `RouteTableId⁻¹` (the leg it
+ * inverts, marked), rather than the raw internal name.
+ */
 function shortMorphism(name: string): string {
+  if (isInverse(name)) {
+    const prop = name.slice(name.lastIndexOf('__') + 2);
+    return `${prop}⁻¹`;
+  }
   const dot = name.indexOf('.');
   return dot === -1 ? name : name.slice(dot + 1);
 }

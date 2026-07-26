@@ -57,6 +57,21 @@ describe('graph model — VPC', () => {
     expect(Object.keys(g.fiberColors)).toHaveLength(9);
     expect(g.fiberColors.Network).toBe(0);
   });
+
+  it('marks the invert opinion as a derived edge with a clean label', () => {
+    // `invert PublicRTAssoc.RouteTableId` adds the formal inverse RouteTable → Assoc.
+    const inv = g.edges.find(e => e.id === 'c:inv__PublicRTAssoc__RouteTableId');
+    expect(inv).toMatchObject({
+      source: 'c/PublicRT',
+      target: 'c/PublicRTAssoc',
+      kind: 'c',
+      derived: true,
+      label: 'RouteTableId⁻¹',
+    });
+    // Authored references are never flagged derived.
+    const authored = g.edges.find(e => e.id === 'c:PublicRTAssoc.RouteTableId');
+    expect(authored?.derived).toBeUndefined();
+  });
 });
 
 describe('graph model — API Gateway', () => {

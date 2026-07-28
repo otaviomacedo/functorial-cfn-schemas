@@ -43,6 +43,33 @@ describe('CAPSTONE — unified apigw schema is behaviour-equivalent to the split
     expect(refs.size).toBe(1);
   });
 
+  it('inline Methods sugar works against the unified schema (forwarded defaults + overrides)', () => {
+    const cfn = compileFile('examples/apigw-unified-inline-methods.instance', opts);
+    const methods = Object.values(cfn.Resources).filter(
+      r => r.Type === 'AWS::ApiGateway::Method',
+    );
+    expect(methods).toHaveLength(4);
+
+    // Auth is forwarded as a default (CUSTOM); GET overrides it to NONE.
+    const byVerb = Object.fromEntries(
+      methods.map(m => [m.Properties!.HttpMethod, m]),
+    );
+    expect(byVerb.GET.Properties!.AuthorizationType).toBe('NONE');
+    expect(byVerb.POST.Properties!.AuthorizationType).toBe('CUSTOM');
+
+    // Only the public GET lacks an AuthorizerId; the other three share one.
+    const withAuth = methods.filter(m => m.Properties?.AuthorizerId);
+    expect(withAuth).toHaveLength(3);
+    expect(new Set(withAuth.map(m => JSON.stringify(m.Properties!.AuthorizerId))).size).toBe(1);
+
+    // IntegrationType is uniform; IntegrationUri is forwarded but DELETE overrides.
+    const integrations = Object.values(cfn.Resources).filter(
+      r => r.Type === 'AWS::ApiGateway::Integration',
+    );
+    expect(new Set(integrations.map(i => i.Properties?.Type))).toEqual(new Set(['AWS_PROXY']));
+    expect(new Set(integrations.map(i => JSON.stringify(i.Properties?.Uri))).size).toBe(2);
+  });
+
   it('G is faithful — the only diagnostic is the expected DeployToggle fullness note', () => {
     const diags: string[] = [];
     compileFile('examples/apigw-unified.instance', { onDiagnostic: m => diags.push(m) });

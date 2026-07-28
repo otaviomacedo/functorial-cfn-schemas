@@ -1,0 +1,45 @@
+// The inline `Route.Methods` sugar against the UNIFIED schema (single Method type
+// with an optional, shared Authorizer). The four methods on /items are written
+// inline instead of as standalone `res` declarations.
+//
+// IntegrationUri, IntegrationType, and Auth are forwarded from the Route as
+// DEFAULTS: IntegrationType is uniform, Auth defaults to CUSTOM, and the shared
+// ItemsHandler is the default URI. GET overrides Auth to NONE (it's the one public
+// method), and DELETE overrides IntegrationUri with its own handler. Authorizer is
+// NOT forwarded, so each authorized method references the shared authorizer itself.
+
+instance of "./apigw-unified.schema"
+
+res ItemsApi: Functorial::APIGW::Api = {
+    Name: "items-service"
+    Description: "Items CRUD API"
+}
+
+res Prod: Functorial::APIGW::Stage = {
+    StageName: "prod"
+    Api: ItemsApi
+}
+
+res LambdaAuth: Functorial::APIGW::Authorizer = {
+    Name: "lambda-authorizer"
+    Type: "REQUEST"
+    Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthFn.Arn}/invocations"
+    Api: ItemsApi
+}
+
+// /items — methods declared inline. Auth/IntegrationType/IntegrationUri are hoisted
+// onto the Route as defaults; GET is the public method (Auth: NONE, no Authorizer),
+// DELETE uses its own handler.
+res ItemsRoute: Functorial::APIGW::Route = {
+    Path: "items"
+    Api: ItemsApi
+    Auth: "CUSTOM"
+    IntegrationType: "AWS_PROXY"
+    IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemsHandlerFn.Arn}/invocations"
+    Methods: [
+        { HttpMethod: "GET",    Auth: "NONE" },
+        { HttpMethod: "POST",   Authorizer: LambdaAuth },
+        { HttpMethod: "PUT",    Authorizer: LambdaAuth },
+        { HttpMethod: "DELETE", Authorizer: LambdaAuth, IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteItemFn.Arn}/invocations" }
+    ]
+}

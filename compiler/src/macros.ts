@@ -129,9 +129,13 @@ export function applyMacros(macros: MacroSet, template: AbstractTemplate): Abstr
 
           childProps[macro.rule.backRef] = resource.logicalId;
 
+          // Forwarded properties fill in as defaults, not overrides: the parent's
+          // value is used only where the element didn't set its own. This lets a
+          // Route hoist a shared value (e.g. IntegrationUri) while still allowing
+          // any single method to override it inline.
           if (macro.rule.forward) {
             for (const fwdProp of macro.rule.forward) {
-              if (resource.properties[fwdProp] !== undefined) {
+              if (childProps[fwdProp] === undefined && resource.properties[fwdProp] !== undefined) {
                 childProps[fwdProp] = resource.properties[fwdProp];
               }
             }

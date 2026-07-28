@@ -197,6 +197,37 @@ describe('Macro preprocessor', () => {
       expect(methods[0].properties.Function).toBe('ItemHandler');
       expect(methods[1].properties.Function).toBe('ItemHandler');
     });
+
+    it('forwards as a default: an element that sets the property keeps its own value', () => {
+      const template = {
+        schemaPath: './test.yaml',
+        resources: [
+          {
+            logicalId: 'ItemsRoute',
+            type: 'Functorial::APIGW::Route',
+            properties: {
+              Path: '/items',
+              Methods: [
+                { HttpMethod: 'GET' },
+                { HttpMethod: 'POST', Function: 'SpecialHandler' },
+              ],
+              Function: 'ItemHandler',
+            },
+          },
+        ],
+        toggles: {},
+      };
+
+      const result = applyMacros(macros, template);
+
+      const methods = result.resources.filter(r => r.type === 'Functorial::APIGW::Method');
+      const get = methods.find(m => m.properties.HttpMethod === 'GET');
+      const post = methods.find(m => m.properties.HttpMethod === 'POST');
+      // GET didn't set Function, so it inherits the Route's default.
+      expect(get!.properties.Function).toBe('ItemHandler');
+      // POST set its own Function, so the forwarded default does not clobber it.
+      expect(post!.properties.Function).toBe('SpecialHandler');
+    });
   });
 
   describe('applyMacros: toggle expansion', () => {

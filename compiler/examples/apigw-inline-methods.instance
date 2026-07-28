@@ -1,0 +1,39 @@
+// Same API surface as apigw-explicit.instance, but the four Methods on /items are
+// written inline via the `Route.Methods` sugar instead of as standalone `res`
+// declarations. The macro (declared in apigw.schema) expands each array element
+// into its own Functorial::APIGW::Method: HttpMethod comes from the element and
+// the Route back-reference is filled in automatically. IntegrationUri,
+// IntegrationType, and Auth are forwarded from the Route as DEFAULTS — a method
+// inherits them unless it sets its own. Here IntegrationType is uniform and Auth
+// defaults to IAM; GET overrides Auth to NONE and DELETE overrides IntegrationUri
+// with its own handler.
+
+instance of "./apigw.schema"
+
+res ItemsApi: Functorial::APIGW::Api = {
+    Name: "items-service"
+    Description: "Items CRUD API"
+}
+
+res Prod: Functorial::APIGW::Stage = {
+    StageName: "prod"
+    Api: ItemsApi
+}
+
+// /items — the four methods are declared inline. IntegrationType (AWS_PROXY),
+// Auth (IAM), and IntegrationUri (ItemsHandler) are hoisted onto the Route as
+// defaults. GET overrides Auth to NONE; DELETE overrides IntegrationUri with its
+// own handler.
+res ItemsRoute: Functorial::APIGW::Route = {
+    Path: "items"
+    Api: ItemsApi
+    Auth: "IAM"
+    IntegrationType: "AWS_PROXY"
+    IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ItemsHandlerFn.Arn}/invocations"
+    Methods: [
+        { HttpMethod: "GET",    Auth: "NONE" },
+        { HttpMethod: "POST" },
+        { HttpMethod: "PUT" },
+        { HttpMethod: "DELETE", IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteItemFn.Arn}/invocations" }
+    ]
+}

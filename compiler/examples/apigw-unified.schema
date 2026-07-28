@@ -164,12 +164,15 @@ schema Api {
     // This is the faithfulness fix that used to live on AuthMethod.
     Method.Route.Api = Method.Authorizer.Api
 
-    // Users can write Methods inline on a Route.
+    // Users can write Methods inline on a Route. `forward` hoists shared values
+    // (IntegrationUri, IntegrationType, Auth) onto the Route as defaults: each
+    // expanded Method inherits them unless the element sets its own, so any one
+    // method can override.
     macro Functorial::APIGW::Route.Methods {
         expandsTo: "Functorial::APIGW::Method"
         elementProperty: "HttpMethod"
         backRef: "Route"
-        forward: [IntegrationUri]
+        forward: [IntegrationUri, IntegrationType, Auth]
     }
 }
 

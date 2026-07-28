@@ -109,4 +109,23 @@ describe('API Gateway examples (DSL, end-to-end)', () => {
     const resources = Object.values(cfn.Resources).filter(r => r.Type === 'AWS::ApiGateway::Resource');
     expect(resources).toHaveLength(2); // /items + /items/{id}
   });
+
+  it('inline Methods sugar expands to one Method per array element', () => {
+    const cfn = example('apigw-inline-methods.instance');
+    const methods = Object.values(cfn.Resources).filter(r => r.Type === 'AWS::ApiGateway::Method');
+    expect(methods).toHaveLength(4);
+    expect(methods.map(m => m.Properties?.HttpMethod).sort()).toEqual([
+      'DELETE',
+      'GET',
+      'POST',
+      'PUT',
+    ]);
+    // The Route's IntegrationUri is forwarded as a default: GET/POST/PUT inherit
+    // it, but DELETE overrides it inline, so there are two distinct URIs.
+    const integrations = Object.values(cfn.Resources).filter(
+      r => r.Type === 'AWS::ApiGateway::Integration',
+    );
+    const uris = new Set(integrations.map(i => JSON.stringify(i.Properties?.Uri)));
+    expect(uris.size).toBe(2);
+  });
 });

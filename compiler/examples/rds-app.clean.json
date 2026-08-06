@@ -1,0 +1,92 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "RDS-backed app with RFC 0972 Metadata.Context.mutable annotations (consistent).",
+  "Resources": {
+    "AppVpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": { "CidrBlock": "10.0.0.0/16" },
+      "Metadata": {
+        "Context": {
+          "why": "Foundational network everything else is built on.",
+          "mutable": "must-never-change",
+          "must": ["CIDR must not change once subnets are allocated"]
+        }
+      }
+    },
+    "DbSubnet": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": { "Ref": "AppVpc" },
+        "CidrBlock": "10.0.1.0/24"
+      },
+      "Metadata": {
+        "Context": {
+          "why": "Holds the primary database; renumbering would orphan the DB.",
+          "mutable": "must-never-change"
+        }
+      }
+    },
+    "DbSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "DB access",
+        "VpcId": { "Ref": "AppVpc" }
+      },
+      "Metadata": {
+        "Context": {
+          "why": "A locked DB depends on this SG's identity; rule changes are per-property.",
+          "mutable": "must-never-change",
+          "mutability": { "SecurityGroupIngress": "review-required" }
+        }
+      }
+    },
+    "Database": {
+      "Type": "AWS::RDS::DBInstance",
+      "DependsOn": "DbSubnet",
+      "Properties": {
+        "Engine": "postgres",
+        "DBInstanceClass": "db.t3.medium",
+        "VPCSecurityGroups": [{ "Fn::GetAtt": ["DbSecurityGroup", "GroupId"] }],
+        "DBSubnetGroupName": { "Ref": "DbSubnetGroup" }
+      },
+      "Metadata": {
+        "Context": {
+          "why": "Stateful primary datastore.",
+          "mutable": "must-never-change",
+          "mutability": { "DBInstanceClass": "change-with-constraints" }
+        }
+      }
+    },
+    "DbSubnetGroup": {
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "Properties": {
+        "DBSubnetGroupDescription": "DB subnet group",
+        "SubnetIds": [{ "Ref": "DbSubnet" }]
+      },
+      "Metadata": {
+        "Context": {
+          "why": "Pins the DB to its subnet.",
+          "mutable": "must-never-change"
+        }
+      }
+    },
+    "AppFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Runtime": "nodejs20.x",
+        "Handler": "index.handler",
+        "Environment": {
+          "Variables": {
+            "DB_ENDPOINT": { "Fn::Sub": "${Database.Endpoint.Address}" }
+          }
+        }
+      },
+      "Metadata": {
+        "Context": {
+          "why": "Stateless compute; redeploys freely.",
+          "mutable": "free-to-tune"
+        }
+      }
+    }
+  }
+}

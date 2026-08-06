@@ -14,6 +14,8 @@ import { parseSchemaFile, lowerSchemaFile } from './schema-dsl';
 export interface SchemaAnalysis {
   /** The functor G: D → C parsed from the file. */
   functor: Functor;
+  /** The CloudFormation-level category C (= functor.target). */
+  C: Category;
   /** C-objects that render as CFN resources (have a CfnType). */
   resourceObjects: string[];
   /** All C-objects (including value/toggle objects). */
@@ -50,5 +52,5 @@ function analyzeParsed(raw: any): SchemaAnalysis {
   const allObjects = [...C.objects];
 
   const analysis = analyzeFibers(functor, resourceObjects);
-  return { functor, resourceObjects, allObjects, analysis };
+  return { functor, C, resourceObjects, allObjects, analysis };
 }

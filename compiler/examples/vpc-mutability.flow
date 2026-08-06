@@ -1,0 +1,26 @@
+// Flow: mutability / change-safety propagation over the VPC schema.
+//
+// This applies the SAME machinery as data-flow, but the "flow" here is
+// DEPENDENCY and the target lattice is RFC 0972's `mutable` enum:
+//
+//     free-to-tune ≤ review-required ≤ change-with-constraints ≤ must-never-change
+//
+// The rule: if a resource D is `must-never-change`, then everything D's identity
+// is built on must be at least as locked — replacing it would force D to change.
+// Lock therefore propagates from DEPENDENT to DEPENDENCY. In CloudFormation the
+// references already point that way (a NAT references its subnet, a subnet its
+// VPC), so the dependency flow needs no reversal — the edges are C's forward
+// references. Seeding one locked resource, gadget-3 propagation derives the
+// least mutability every upstream dependency must inherit.
+//
+// The RFC leaves `mutable` as an inert per-resource string. Here it is DERIVED
+// and CHECKED: declare a resource free-to-tune and the propagation proves you
+// wrong if something locked depends on it.
+
+flow of "./vpc.schema"
+
+// Dependency edges = forward references (dependent → dependency). All forward,
+// so all functional — no `monic` declarations needed.
+edge natToEip:    NatGateway.AllocationId   // NAT depends on its Elastic IP
+edge natToSubnet: NatGateway.SubnetId        // …and on the public subnet it sits in
+edge subnetToVpc: PublicSubnet.VpcId          // the subnet depends on the VPC

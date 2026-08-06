@@ -24,6 +24,39 @@ export {
   FaithfulnessViolation,
   FullnessViolation,
 } from './faithfulness';
+export {
+  deriveFlow,
+  reaches,
+  flowPaths,
+  isFunctional,
+  deriveElementFlow,
+  elementReaches,
+  reachableFrom,
+  checkFlowEquations,
+  FlowEquationViolation,
+  FlowSpec,
+  FlowEdgeSpec,
+  FlowEdgeInfo,
+  DerivedFlow,
+  ElementFlow,
+  ElementNode,
+  MonicViolation,
+  ZigzagStep,
+  Direction,
+} from './flow';
+export {
+  Lattice,
+  LatticeSpec,
+  Cover,
+  Labeling,
+  checkClassification,
+  ClassificationReport,
+  ClassificationViolation,
+  propagateClassification,
+  PropagationSeed,
+  PropagationReport,
+  ClearanceViolation,
+} from './flow-classify';
 export { Pattern, PatternSpec, PatternInstance, Skeleton, RenderContext, RenderCallback } from './pattern';
 export { defineSchema, definePattern, TypedPattern, TypedPatternInstance, TypedSkeleton, TypedRenderContext, TypedRenderCallbacks, ElementTypes } from './typed';
 export { renderToCdk, CdkRenderContext, CdkRenderCallback, CdkBridgeConfig } from './cdk-bridge';

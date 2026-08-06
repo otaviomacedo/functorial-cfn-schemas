@@ -1,0 +1,50 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Same app, but the DB subnet is mis-annotated free-to-tune under a locked DB.",
+  "Resources": {
+    "AppVpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": { "CidrBlock": "10.0.0.0/16" },
+      "Metadata": {
+        "Context": { "mutable": "must-never-change" }
+      }
+    },
+    "DbSubnet": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": { "Ref": "AppVpc" },
+        "CidrBlock": "10.0.1.0/24"
+      },
+      "Metadata": {
+        "Context": {
+          "why": "Author believes this subnet is disposable and can be re-created freely.",
+          "mutable": "free-to-tune"
+        }
+      }
+    },
+    "DbSubnetGroup": {
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "Properties": {
+        "DBSubnetGroupDescription": "DB subnet group",
+        "SubnetIds": [{ "Ref": "DbSubnet" }]
+      },
+      "Metadata": {
+        "Context": { "mutable": "must-never-change" }
+      }
+    },
+    "Database": {
+      "Type": "AWS::RDS::DBInstance",
+      "Properties": {
+        "Engine": "postgres",
+        "DBInstanceClass": "db.t3.medium",
+        "DBSubnetGroupName": { "Ref": "DbSubnetGroup" }
+      },
+      "Metadata": {
+        "Context": {
+          "why": "Stateful primary datastore; must never be replaced.",
+          "mutable": "must-never-change"
+        }
+      }
+    }
+  }
+}

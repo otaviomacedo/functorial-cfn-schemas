@@ -1,0 +1,33 @@
+// Flow: internet egress reachability over the VPC schema.
+//
+// Question this answers: "which subnet tiers can reach the internet?"
+// A packet leaves a subnet, follows its route table to a route, and either hits
+// the Internet Gateway directly (public) or a NAT Gateway that itself sits in a
+// public subnet (private). An isolated subnet has neither route — so it must NOT
+// reach the IGW. Flow runs OPPOSITE to the CFN references, so the route-table
+// association and route legs are traversed backward (`~`).
+
+flow of "./vpc.schema"
+
+// These association/route legs are 1:1 in this schema (the abstraction inverts
+// them), so reversing them is a function, not a fan-out.
+monic PrivateRTAssoc.RouteTableId
+monic PublicRTAssoc.RouteTableId
+monic PrivateRoute.RouteTableId
+monic PublicRoute.RouteTableId
+
+// A subnet reaches its own route table: reverse the association's SubnetId leg,
+// then follow its RouteTableId leg.
+edge privToRT:   ~PrivateRTAssoc.SubnetId * PrivateRTAssoc.RouteTableId
+edge pubToRT:    ~PublicRTAssoc.SubnetId  * PublicRTAssoc.RouteTableId
+
+// A route table reaches the route attached to it (reverse the route's RT leg).
+edge privRTRoute: ~PrivateRoute.RouteTableId
+edge pubRTRoute:  ~PublicRoute.RouteTableId
+
+// The private route points at a NAT gateway; the NAT sits in a public subnet.
+edge routeToNat: PrivateRoute.NatGatewayId
+edge natToPub:   NatGateway.SubnetId
+
+// The public route points straight at the Internet Gateway.
+edge routeToIgw: PublicRoute.GatewayId
